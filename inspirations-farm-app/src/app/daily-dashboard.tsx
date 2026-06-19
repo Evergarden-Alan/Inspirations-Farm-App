@@ -1,24 +1,22 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { Plus, Loader2, Circle, CheckCircle2 } from "lucide-react";
+import { Plus, Loader2, Circle, CheckCircle2, CornerDownRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { apiFetch, AuthError } from "@/lib/api";
+import { getBeijingDateString } from "@/lib/beijing-time";
+import { insertSubtaskLine } from "@/lib/github";
+import { cascadeToggle, applyTaskChanges } from "@/lib/cascade";
+import type { DailyTask } from "@/lib/github";
 
 interface DailyState {
   exists: boolean;
   path?: string;
   sha?: string;
   content?: string;
-  tasks?: { text: string; done: boolean }[];
-}
-
-function today(): string {
-  const d = new Date();
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+  tasks?: DailyTask[];
 }
 
 export function DailyDashboard() {
@@ -27,7 +25,9 @@ export function DailyDashboard() {
   const [acting, setActing] = useState(false);
   const [newTask, setNewTask] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const date = today();
+  const [addSubFor, setAddSubFor] = useState<number | null>(null); // task id
+  const [subText, setSubText] = useState("");
+  const date = getBeijingDateString();
 
   // ── Fetch ───────────────────────────────────────────
   const fetchJournal = useCallback(async () => {
@@ -56,7 +56,7 @@ export function DailyDashboard() {
     fetchJournal();
   }, [fetchJournal]);
 
-  // ── Create ──────────────────────────────────────────
+  // ── Create journal ──────────────────────────────────
   async function handleCreate() {
     setActing(true);
     setError(null);
@@ -78,18 +78,17 @@ export function DailyDashboard() {
     }
   }
 
-  // ── Toggle task ─────────────────────────────────────
+  // ── Toggle with parent-child cascade ────────────────
   async function handleToggle(index: number) {
     if (!state?.content || !state.sha || !state.path || !state.tasks) return;
 
-    const tasks = state.tasks;
-    const task = tasks[index];
-    const oldLine = task.done ? `- [x] ${task.text}` : `- [ ] ${task.text}`;
-    const newLine = task.done ? `- [ ] ${task.text}` : `- [x] ${task.text}`;
+    const oldTasks = state.tasks;
+    const newTasks = cascadeToggle(oldTasks, index);
 
-    const updatedContent = state.content.replace(oldLine, newLine);
-    if (updatedContent === state.content) {
-      setError("Failed to locate task line in file");
+    // Build updated markdown from the diff
+    const updatedContent = applyTaskChanges(state.content, oldTasks, newTasks);
+    if (updatedContent === state.content && oldTasks[index].done === newTasks[index].done) {
+      setError("Failed to update task in file");
       return;
     }
 
@@ -106,14 +105,7 @@ export function DailyDashboard() {
       });
       const data = await res.json();
       if (data.ok) {
-        const newTasks = [...tasks];
-        newTasks[index] = { ...task, done: !task.done };
-        setState({
-          ...state,
-          content: updatedContent,
-          sha: data.sha,
-          tasks: newTasks,
-        });
+        setState({ ...state, content: updatedContent, sha: data.sha, tasks: newTasks });
       } else {
         setError(data.error ?? "Failed to update");
       }
@@ -124,7 +116,7 @@ export function DailyDashboard() {
     }
   }
 
-  // ── Add task ────────────────────────────────────────
+  // ── Add top-level task ──────────────────────────────
   async function handleAddTask() {
     const text = newTask.trim();
     if (!text || !state?.content || !state.sha || !state.path) return;
@@ -136,21 +128,12 @@ export function DailyDashboard() {
     try {
       const res = await apiFetch("/api/daily", {
         method: "PUT",
-        body: JSON.stringify({
-          path: state.path,
-          sha: state.sha,
-          content: updatedContent,
-        }),
+        body: JSON.stringify({ path: state.path, sha: state.sha, content: updatedContent }),
       });
       const data = await res.json();
       if (data.ok) {
         setNewTask("");
-        setState({
-          ...state,
-          content: updatedContent,
-          sha: data.sha,
-          tasks: [...(state.tasks ?? []), { text, done: false }],
-        });
+        await fetchJournal();
       } else {
         setError(data.error ?? "Failed to add task");
       }
@@ -161,10 +144,43 @@ export function DailyDashboard() {
     }
   }
 
-  function handleAddKeyDown(e: React.KeyboardEvent) {
+  // ── Add sub-task ────────────────────────────────────
+  async function handleAddSub(parentTask: DailyTask) {
+    const text = subText.trim();
+    if (!text || !state?.content || !state.sha || !state.path) return;
+
+    const updatedContent = insertSubtaskLine(state.content, parentTask, text);
+
+    setActing(true);
+    setError(null);
+    try {
+      const res = await apiFetch("/api/daily", {
+        method: "PUT",
+        body: JSON.stringify({ path: state.path, sha: state.sha, content: updatedContent }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        setAddSubFor(null);
+        setSubText("");
+        await fetchJournal();
+      } else {
+        setError(data.error ?? "Failed to add subtask");
+      }
+    } catch (err) {
+      if (!(err instanceof AuthError)) setError("Network error");
+    } finally {
+      setActing(false);
+    }
+  }
+
+  function handleSubKeyDown(e: React.KeyboardEvent, parent: DailyTask) {
     if (e.key === "Enter") {
       e.preventDefault();
-      handleAddTask();
+      handleAddSub(parent);
+    }
+    if (e.key === "Escape") {
+      setAddSubFor(null);
+      setSubText("");
     }
   }
 
@@ -172,9 +188,7 @@ export function DailyDashboard() {
   if (loading) {
     return (
       <Card className="bg-white border-slate-200/60 shadow-sm">
-        <CardContent className="p-6 text-center text-sm text-slate-400">
-          加载日程中...
-        </CardContent>
+        <CardContent className="p-6 text-center text-sm text-slate-400">加载日程中...</CardContent>
       </Card>
     );
   }
@@ -203,9 +217,7 @@ export function DailyDashboard() {
     <Card className="bg-white border-slate-200/60 shadow-sm">
       <CardHeader className="pb-3">
         <div className="flex items-center justify-between">
-          <CardTitle className="text-base font-semibold text-slate-700">
-            📅 今日日程
-          </CardTitle>
+          <CardTitle className="text-base font-semibold text-slate-700">📅 今日日程</CardTitle>
           <span className="text-xs text-slate-400">
             {totalCount > 0 ? `${doneCount}/${totalCount}` : ""}
           </span>
@@ -214,54 +226,96 @@ export function DailyDashboard() {
       </CardHeader>
 
       <CardContent className="space-y-3">
-        {/* Error */}
         {error && (
-          <p className="text-xs text-red-500 bg-red-50 rounded-lg px-3 py-2">
-            {error}
-          </p>
+          <p className="text-xs text-red-500 bg-red-50 rounded-lg px-3 py-2">{error}</p>
         )}
 
-        {/* Task list — full-row touch targets */}
+        {/* Task list */}
         {state.tasks && state.tasks.length > 0 ? (
           <ul className="space-y-0.5 -mx-2">
-            {state.tasks.map((task, i) => (
-              <li key={i}>
-                <button
-                  onClick={() => handleToggle(i)}
-                  disabled={acting}
-                  className="w-full flex items-center gap-3 py-3 px-3 min-h-[3.5rem] rounded-lg hover:bg-slate-50 active:bg-slate-100 transition-colors text-left disabled:opacity-50 touch-manipulation"
-                >
-                  {task.done ? (
-                    <CheckCircle2 className="w-6 h-6 text-emerald-500 flex-shrink-0" />
-                  ) : (
-                    <Circle className="w-6 h-6 text-slate-300 flex-shrink-0" />
-                  )}
-                  <span
-                    className={`text-base leading-relaxed transition-all duration-200 ${
-                      task.done
-                        ? "text-slate-300 line-through"
-                        : "text-slate-700"
-                    }`}
+            {state.tasks.map((task, i) => {
+              const isSub = task.indentLevel > 0;
+              const iconSize = isSub ? "w-5 h-5" : "w-6 h-6";
+
+              return (
+                <li key={task.id}>
+                  <div
+                    className="group/task relative"
+                    style={{ marginLeft: `${task.indentLevel * 1.5}rem` }}
                   >
-                    {task.text}
-                  </span>
-                </button>
-              </li>
-            ))}
+                    {/* Main row */}
+                    <button
+                      onClick={() => handleToggle(i)}
+                      disabled={acting}
+                      className="w-full flex items-center gap-3 py-3 px-3 min-h-[3.5rem] rounded-lg hover:bg-slate-50 active:bg-slate-100 transition-colors text-left disabled:opacity-50 touch-manipulation"
+                    >
+                      {task.done ? (
+                        <CheckCircle2 className={`${iconSize} text-emerald-500 flex-shrink-0`} />
+                      ) : (
+                        <Circle className={`${iconSize} text-slate-300 flex-shrink-0`} />
+                      )}
+                      <span
+                        className={`text-base leading-relaxed transition-all duration-200 ${
+                          task.done
+                            ? "text-slate-300 line-through"
+                            : isSub
+                              ? "text-slate-600"
+                              : "text-slate-700"
+                        }`}
+                      >
+                        {task.text}
+                      </span>
+
+                      {/* Add sub-task button — visible on hover */}
+                      {task.indentLevel < 4 && (
+                        <span
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setAddSubFor(task.id);
+                            setSubText("");
+                          }}
+                          className="ml-auto opacity-0 group-hover/task:opacity-100 transition-opacity p-1.5 rounded-md text-slate-300 hover:text-emerald-500 hover:bg-emerald-50 touch-manipulation"
+                          title="添加子任务"
+                        >
+                          <CornerDownRight className="w-4 h-4" />
+                        </span>
+                      )}
+                    </button>
+
+                    {/* Inline sub-task input */}
+                    {addSubFor === task.id && (
+                      <div
+                        className="flex items-center gap-2 py-1 px-3"
+                        style={{ marginLeft: `${1.5}rem` }}
+                      >
+                        <CornerDownRight className="w-4 h-4 text-slate-300 flex-shrink-0" />
+                        <Input
+                          placeholder="子任务..."
+                          value={subText}
+                          onChange={(e) => setSubText(e.target.value)}
+                          onKeyDown={(e) => handleSubKeyDown(e, task)}
+                          disabled={acting}
+                          className="h-9 text-sm border-slate-200 focus-visible:ring-emerald-500"
+                          autoFocus
+                        />
+                      </div>
+                    )}
+                  </div>
+                </li>
+              );
+            })}
           </ul>
         ) : (
-          <p className="text-sm text-slate-400 text-center py-4">
-            还没有任务，添加一个吧
-          </p>
+          <p className="text-sm text-slate-400 text-center py-4">还没有任务，添加一个吧</p>
         )}
 
-        {/* Add task — input + full-size button */}
+        {/* Add top-level task */}
         <div className="flex items-center gap-3 pt-3 border-t border-slate-100">
           <Input
             placeholder="添加任务..."
             value={newTask}
             onChange={(e) => setNewTask(e.target.value)}
-            onKeyDown={handleAddKeyDown}
+            onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); handleAddTask(); } }}
             disabled={acting}
             className="h-11 text-base border-slate-200 focus-visible:ring-emerald-500"
           />
@@ -270,11 +324,7 @@ export function DailyDashboard() {
             disabled={acting || !newTask.trim()}
             className="min-w-[44px] min-h-[44px] h-11 w-11 p-0 flex-shrink-0 bg-emerald-600 hover:bg-emerald-700 text-white"
           >
-            {acting ? (
-              <Loader2 className="w-5 h-5 animate-spin" />
-            ) : (
-              <Plus className="w-5 h-5" />
-            )}
+            {acting ? <Loader2 className="w-5 h-5 animate-spin" /> : <Plus className="w-5 h-5" />}
           </Button>
         </div>
       </CardContent>

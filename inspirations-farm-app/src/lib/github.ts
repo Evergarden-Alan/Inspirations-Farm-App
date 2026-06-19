@@ -3,6 +3,8 @@
  * All GitHub API calls go through here to keep auth and base URL centralized.
  */
 
+import { getBeijingDateTimeString } from "./beijing-time";
+
 const GITHUB_API = "https://api.github.com";
 
 function getConfig() {
@@ -90,24 +92,6 @@ export async function listInspirations(): Promise<FileListItem[]> {
     .map(({ name, path, sha, size }) => ({ name, path, sha, size }));
 }
 
-/** Format a date as YYYY-MM-DD HH:mm:ss (local time) */
-function formatDate(date: Date): string {
-  const pad = (n: number) => String(n).padStart(2, "0");
-  return [
-    date.getFullYear(),
-    "-",
-    pad(date.getMonth() + 1),
-    "-",
-    pad(date.getDate()),
-    " ",
-    pad(date.getHours()),
-    ":",
-    pad(date.getMinutes()),
-    ":",
-    pad(date.getSeconds()),
-  ].join("");
-}
-
 /** Create a new .md file under Inspirations/ with the given basename and body */
 export async function createInspiration(
   filename: string,
@@ -119,7 +103,7 @@ export async function createInspiration(
     "---",
     "type: inspiration",
     "status: active",
-    `create: ${formatDate(new Date())}`,
+    `create: ${getBeijingDateTimeString()}`,
     "---",
     "",
     `# ${content}`,
@@ -275,8 +259,16 @@ export async function updateFileStatus(
 // ── Daily Journal ─────────────────────────────────────
 
 export interface DailyTask {
+  id: number;
+  parentId: number | null;
   text: string;
   done: boolean;
+  /** 0 = top-level, 1 = first indent, etc. */
+  indentLevel: number;
+  /** Raw leading whitespace for exact line reconstruction on toggle */
+  indent: string;
+  /** Original line index in the markdown for insertion calculations */
+  lineNumber: number;
 }
 
 export interface DailyJournal {
@@ -288,17 +280,48 @@ export interface DailyJournal {
   tasks?: DailyTask[];
 }
 
+function calcIndent(ws: string): { level: number; raw: string } {
+  // Tabs: each tab = 1 level. Spaces: every 2 spaces = 1 level.
+  if (ws.includes("\t")) {
+    const count = ws.split("\t").length - 1;
+    return { level: count, raw: ws };
+  }
+  const count = ws.length;
+  return { level: Math.floor(count / 2), raw: ws };
+}
+
 function parseTasks(markdown: string): DailyTask[] {
   const lines = markdown.split("\n");
   const tasks: DailyTask[] = [];
-  for (const line of lines) {
-    const match = line.match(/^-\s*\[([ xX])\]\s+(.*)$/);
+  let id = 0;
+  for (let lineNum = 0; lineNum < lines.length; lineNum++) {
+    const line = lines[lineNum];
+    const match = line.match(/^(\s*)-\s*\[([ xX])\]\s+(.*)$/);
     if (match) {
+      const { level, raw } = calcIndent(match[1]);
       tasks.push({
-        done: match[1].toLowerCase() === "x",
-        text: match[2].trim(),
+        id: id++,
+        parentId: null,
+        done: match[2].toLowerCase() === "x",
+        text: match[3].trim(),
+        indentLevel: level,
+        indent: raw,
+        lineNumber: lineNum,
       });
     }
+  }
+  return computeParents(tasks);
+}
+
+/** Assign parentId to each task based on indentLevel */
+export function computeParents(tasks: DailyTask[]): DailyTask[] {
+  const stack: { id: number; level: number }[] = [];
+  for (const task of tasks) {
+    while (stack.length > 0 && stack[stack.length - 1].level >= task.indentLevel) {
+      stack.pop();
+    }
+    task.parentId = stack.length > 0 ? stack[stack.length - 1].id : null;
+    stack.push({ id: task.id, level: task.indentLevel });
   }
   return tasks;
 }
@@ -347,7 +370,7 @@ export async function createDailyJournal(
     "---",
     "type: daily",
     `date: ${date}`,
-    `created: ${formatDate(new Date())}`,
+    `created: ${getBeijingDateTimeString()}`,
     "---",
     "",
   ].join("\n");
@@ -395,3 +418,49 @@ export async function updateDailyJournal(
 
   return { sha: result.content.sha };
 }
+
+// ── Markdown line manipulation ─────────────────────────
+
+/**
+ * Insert a new subtask line into raw markdown content right after
+ * the last existing subtask of the given parent task.
+ *
+ * @param content  Full raw markdown content
+ * @param parentTask  The parent task under which to insert
+ * @param subtaskText  Text for the new subtask
+ * @returns Updated markdown content
+ */
+export function insertSubtaskLine(
+  content: string,
+  parentTask: DailyTask,
+  subtaskText: string
+): string {
+  const lines = content.split("\n");
+  const parentIndentLen = parentTask.indent.length;
+  const subIndent = parentTask.indent + "    "; // 4 spaces per level
+  const newLine = `${subIndent}- [ ] ${subtaskText}`;
+
+  // Start from the parent line, scan forward to find the last subtask
+  let insertAt = parentTask.lineNumber;
+
+  for (let i = parentTask.lineNumber + 1; i < lines.length; i++) {
+    const line = lines[i];
+    const match = line.match(/^(\s*)-\s*\[/);
+    if (match) {
+      // Task line — check if it's a deeper subtask
+      if (match[1].length > parentIndentLen) {
+        insertAt = i;
+      } else {
+        break; // back to same or shallower level — stop
+      }
+    } else if (line.trim() === "") {
+      insertAt = i; // blank line — skip over it
+    } else {
+      break; // non-task, non-blank line — stop
+    }
+  }
+
+  lines.splice(insertAt + 1, 0, newLine);
+  return lines.join("\n");
+}
+

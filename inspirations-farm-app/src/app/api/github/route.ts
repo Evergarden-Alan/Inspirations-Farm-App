@@ -6,6 +6,7 @@ import {
   updateFileStatus,
 } from "@/lib/github";
 import { validatePin } from "@/lib/auth";
+import { getBeijingTimestamp } from "@/lib/beijing-time";
 
 function deny() {
   return Response.json({ ok: false, error: "Unauthorized" }, { status: 401 });
@@ -42,22 +43,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // YYYY-MM-DD-HHmmss → e.g. 2026-06-19-143025
-    const now = new Date();
-    const pad = (n: number) => String(n).padStart(2, "0");
-    const timestamp = [
-      now.getFullYear(),
-      "-",
-      pad(now.getMonth() + 1),
-      "-",
-      pad(now.getDate()),
-      "-",
-      pad(now.getHours()),
-      pad(now.getMinutes()),
-      pad(now.getSeconds()),
-    ].join("");
-
-    const filename = `${timestamp}.md`;
+    const filename = `${getBeijingTimestamp()}.md`;
     const result = await createInspiration(filename, content);
 
     return Response.json({ ok: true, ...result });
