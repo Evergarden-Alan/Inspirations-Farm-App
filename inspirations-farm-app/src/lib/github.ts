@@ -5,6 +5,7 @@
 
 import matter from "gray-matter";
 import { getBeijingDateTimeString } from "./beijing-time";
+import { parseBeijingTime } from "./time";
 
 const GITHUB_API = "https://api.github.com";
 const LINK_RE = /\[\[(\d{4}-\d{2}-\d{2}-\d{6})(?:\|(.*?))?\]\]/;
@@ -200,7 +201,7 @@ export async function listInspirationsWithContent(): Promise<
 
   // Sort newest first by createdAt (descending)
   items.sort(
-    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    (a, b) => parseBeijingTime(b.createdAt).getTime() - parseBeijingTime(a.createdAt).getTime()
   );
 
   return items;
