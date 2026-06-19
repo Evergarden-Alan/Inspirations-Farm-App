@@ -4,12 +4,18 @@ import {
   createDailyJournal,
   updateDailyJournal,
 } from "@/lib/github";
+import { validatePin } from "@/lib/auth";
+
+function deny() {
+  return Response.json({ ok: false, error: "Unauthorized" }, { status: 401 });
+}
 
 /**
  * GET /api/daily?date=YYYY-MM-DD
  * Returns the daily journal for the given date, or { exists: false }.
  */
 export async function GET(req: NextRequest) {
+  if (!validatePin(req)) return deny();
   try {
     const date = req.nextUrl.searchParams.get("date");
     if (!date) {
@@ -30,10 +36,9 @@ export async function GET(req: NextRequest) {
 /**
  * POST /api/daily
  * Creates a new daily journal file.
- *
- * Body: { date: "YYYY-MM-DD" }
  */
 export async function POST(req: NextRequest) {
+  if (!validatePin(req)) return deny();
   try {
     const { date } = await req.json();
     if (!date || typeof date !== "string") {
@@ -54,10 +59,9 @@ export async function POST(req: NextRequest) {
 /**
  * PUT /api/daily
  * Updates the content of a daily journal file (e.g. toggling tasks).
- *
- * Body: { path: string, sha: string, content: string }
  */
 export async function PUT(req: NextRequest) {
+  if (!validatePin(req)) return deny();
   try {
     const { path, sha, content } = await req.json();
 

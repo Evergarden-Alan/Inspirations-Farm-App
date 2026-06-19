@@ -5,6 +5,7 @@ import { Plus, Loader2, Circle, CheckCircle2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { apiFetch, AuthError } from "@/lib/api";
 
 interface DailyState {
   exists: boolean;
@@ -31,7 +32,7 @@ export function DailyDashboard() {
   // ── Fetch ───────────────────────────────────────────
   const fetchJournal = useCallback(async () => {
     try {
-      const res = await fetch(`/api/daily?date=${date}`);
+      const res = await apiFetch(`/api/daily?date=${date}`);
       const data = await res.json();
       if (data.ok) {
         setState({
@@ -44,8 +45,8 @@ export function DailyDashboard() {
       } else {
         setError(data.error ?? "Failed to load");
       }
-    } catch {
-      setError("Network error");
+    } catch (err) {
+      if (!(err instanceof AuthError)) setError("Network error");
     } finally {
       setLoading(false);
     }
@@ -60,9 +61,8 @@ export function DailyDashboard() {
     setActing(true);
     setError(null);
     try {
-      const res = await fetch("/api/daily", {
+      const res = await apiFetch("/api/daily", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ date }),
       });
       const data = await res.json();
@@ -71,8 +71,8 @@ export function DailyDashboard() {
       } else {
         setError(data.error ?? "Failed to create");
       }
-    } catch {
-      setError("Network error");
+    } catch (err) {
+      if (!(err instanceof AuthError)) setError("Network error");
     } finally {
       setActing(false);
     }
@@ -96,9 +96,8 @@ export function DailyDashboard() {
     setActing(true);
     setError(null);
     try {
-      const res = await fetch("/api/daily", {
+      const res = await apiFetch("/api/daily", {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           path: state.path,
           sha: state.sha,
@@ -118,8 +117,8 @@ export function DailyDashboard() {
       } else {
         setError(data.error ?? "Failed to update");
       }
-    } catch {
-      setError("Network error");
+    } catch (err) {
+      if (!(err instanceof AuthError)) setError("Network error");
     } finally {
       setActing(false);
     }
@@ -135,9 +134,8 @@ export function DailyDashboard() {
     setActing(true);
     setError(null);
     try {
-      const res = await fetch("/api/daily", {
+      const res = await apiFetch("/api/daily", {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           path: state.path,
           sha: state.sha,
@@ -156,8 +154,8 @@ export function DailyDashboard() {
       } else {
         setError(data.error ?? "Failed to add task");
       }
-    } catch {
-      setError("Network error");
+    } catch (err) {
+      if (!(err instanceof AuthError)) setError("Network error");
     } finally {
       setActing(false);
     }
@@ -241,7 +239,7 @@ export function DailyDashboard() {
                   <span
                     className={`text-base leading-relaxed transition-all duration-200 ${
                       task.done
-                        ? "text-slate-400 line-through"
+                        ? "text-slate-300 line-through"
                         : "text-slate-700"
                     }`}
                   >

@@ -6,6 +6,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { getSurvivalLabel } from "@/lib/time";
+import { apiFetch, AuthError } from "@/lib/api";
 
 interface Inspiration {
   name: string;
@@ -28,7 +29,7 @@ export function InspirationFeed() {
   // ── Fetch list ──────────────────────────────────────
   const fetchItems = useCallback(async () => {
     try {
-      const res = await fetch("/api/github");
+      const res = await apiFetch("/api/github");
       const data = await res.json();
       if (data.ok) {
         setItems(
@@ -37,8 +38,8 @@ export function InspirationFeed() {
       } else {
         setError(data.error ?? "Failed to load");
       }
-    } catch {
-      setError("Network error");
+    } catch (err) {
+      if (!(err instanceof AuthError)) setError("Network error");
     } finally {
       setLoading(false);
     }
@@ -57,9 +58,8 @@ export function InspirationFeed() {
     setError(null);
 
     try {
-      const res = await fetch("/api/github", {
+      const res = await apiFetch("/api/github", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ content: text }),
       });
       const data = await res.json();
@@ -70,8 +70,8 @@ export function InspirationFeed() {
       } else {
         setError(data.error ?? "Failed to create");
       }
-    } catch {
-      setError("Network error");
+    } catch (err) {
+      if (!(err instanceof AuthError)) setError("Network error");
     } finally {
       setSubmitting(false);
     }
@@ -82,9 +82,8 @@ export function InspirationFeed() {
     setActionLoading(item.sha);
     setError(null);
     try {
-      const res = await fetch("/api/github", {
+      const res = await apiFetch("/api/github", {
         method: "PUT",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           path: item.path,
           sha: item.sha,
@@ -97,8 +96,8 @@ export function InspirationFeed() {
       } else {
         setError(data.error ?? "Failed to update");
       }
-    } catch {
-      setError("Network error");
+    } catch (err) {
+      if (!(err instanceof AuthError)) setError("Network error");
     } finally {
       setActionLoading(null);
     }
@@ -109,9 +108,8 @@ export function InspirationFeed() {
     setActionLoading(item.sha);
     setError(null);
     try {
-      const res = await fetch("/api/github", {
+      const res = await apiFetch("/api/github", {
         method: "DELETE",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ path: item.path, sha: item.sha }),
       });
       const data = await res.json();
@@ -120,11 +118,22 @@ export function InspirationFeed() {
       } else {
         setError(data.error ?? "Failed to delete");
       }
-    } catch {
-      setError("Network error");
+    } catch (err) {
+      if (!(err instanceof AuthError)) setError("Network error");
     } finally {
       setActionLoading(null);
     }
+  }
+
+  // ── Auto-resize textarea ────────────────────────────
+  function autoResize(el: HTMLTextAreaElement) {
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight}px`;
+  }
+
+  function handleChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
+    setContent(e.target.value);
+    autoResize(e.target);
   }
 
   // ── Ctrl+Enter ──────────────────────────────────────
@@ -143,9 +152,10 @@ export function InspirationFeed() {
         <Textarea
           ref={textareaRef}
           placeholder="此刻有什么灵感..."
-          className="min-h-[100px] resize-none bg-white border-slate-200 focus-visible:ring-emerald-500 text-base"
+          rows={3}
+          className="min-h-[64px] resize-none bg-white border-slate-200 focus-visible:ring-emerald-500 text-base"
           value={content}
-          onChange={(e) => setContent(e.target.value)}
+          onChange={handleChange}
           onKeyDown={handleKeyDown}
           disabled={submitting}
         />
@@ -210,36 +220,39 @@ function InspirationCard({
 
   return (
     <Card className="bg-white border-slate-200/60 shadow-sm group">
-      <CardContent className="p-4 space-y-3">
-        {/* Survival time */}
-        <span className="text-xs text-slate-400 tracking-wide">{survival}</span>
-
+      <CardContent className="px-4 pt-4 pb-2 space-y-2.5">
         {/* Content */}
         <p className="text-sm text-slate-700 leading-relaxed whitespace-pre-wrap">
           {item.content}
         </p>
 
-        {/* Action bar — bottom-right, responsive visibility */}
-        <div className="flex justify-end gap-3 pt-2 border-t border-slate-50">
-          {/* Complete */}
-          <button
-            onClick={() => onComplete(item)}
-            disabled={disabled}
-            className="flex items-center justify-center min-w-[44px] min-h-[44px] rounded-lg text-slate-400 opacity-60 hover:text-emerald-600 hover:bg-emerald-50 hover:opacity-100 active:bg-emerald-100 transition-all disabled:opacity-30 md:opacity-0 md:group-hover:opacity-100 touch-manipulation"
-            title="完成"
-          >
-            <Check className="w-5 h-5" />
-          </button>
+        {/* Footer: survival time + actions in one row */}
+        <div className="flex items-center justify-between pt-2 border-t border-slate-100">
+          <span className="text-xs text-slate-400 tracking-wide">
+            {survival}
+          </span>
 
-          {/* Delete */}
-          <button
-            onClick={() => onDelete(item)}
-            disabled={disabled}
-            className="flex items-center justify-center min-w-[44px] min-h-[44px] rounded-lg text-slate-400 opacity-60 hover:text-red-500 hover:bg-red-50 hover:opacity-100 active:bg-red-100 transition-all disabled:opacity-30 md:opacity-0 md:group-hover:opacity-100 touch-manipulation"
-            title="删除"
-          >
-            <Trash2 className="w-5 h-5" />
-          </button>
+          <div className="flex items-center gap-1">
+            {/* Complete */}
+            <button
+              onClick={() => onComplete(item)}
+              disabled={disabled}
+              className="flex items-center justify-center min-w-[44px] min-h-[44px] rounded-lg text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 active:bg-emerald-100 transition-all disabled:opacity-30 md:opacity-0 md:group-hover:opacity-100 touch-manipulation"
+              title="完成"
+            >
+              <Check className="w-5 h-5" />
+            </button>
+
+            {/* Delete */}
+            <button
+              onClick={() => onDelete(item)}
+              disabled={disabled}
+              className="flex items-center justify-center min-w-[44px] min-h-[44px] rounded-lg text-slate-400 hover:text-red-500 hover:bg-red-50 active:bg-red-100 transition-all disabled:opacity-30 md:opacity-0 md:group-hover:opacity-100 touch-manipulation"
+              title="删除"
+            >
+              <Trash2 className="w-5 h-5" />
+            </button>
+          </div>
         </div>
       </CardContent>
     </Card>

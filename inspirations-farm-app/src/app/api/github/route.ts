@@ -5,12 +5,18 @@ import {
   deleteFile,
   updateFileStatus,
 } from "@/lib/github";
+import { validatePin } from "@/lib/auth";
+
+function deny() {
+  return Response.json({ ok: false, error: "Unauthorized" }, { status: 401 });
+}
 
 /**
  * GET /api/github
  * Lists all inspiration files with content and parsed metadata.
  */
-export async function GET(_req: NextRequest) {
+export async function GET(req: NextRequest) {
+  if (!validatePin(req)) return deny();
   try {
     const items = await listInspirationsWithContent();
     return Response.json({ ok: true, items });
@@ -23,10 +29,9 @@ export async function GET(_req: NextRequest) {
 /**
  * POST /api/github
  * Creates a new timestamp-named .md file under Inspirations/ with YAML frontmatter.
- *
- * Body: { content: string }
  */
 export async function POST(req: NextRequest) {
+  if (!validatePin(req)) return deny();
   try {
     const { content } = await req.json();
 
@@ -65,10 +70,9 @@ export async function POST(req: NextRequest) {
 /**
  * DELETE /api/github
  * Deletes a file from the Inspirations/ directory.
- *
- * Body: { path: string, sha: string }
  */
 export async function DELETE(req: NextRequest) {
+  if (!validatePin(req)) return deny();
   try {
     const { path, sha } = await req.json();
 
@@ -90,10 +94,9 @@ export async function DELETE(req: NextRequest) {
 /**
  * PUT /api/github
  * Updates the status field of a file's YAML frontmatter.
- *
- * Body: { path: string, sha: string, status: string }
  */
 export async function PUT(req: NextRequest) {
+  if (!validatePin(req)) return deny();
   try {
     const { path, sha, status } = await req.json();
 
