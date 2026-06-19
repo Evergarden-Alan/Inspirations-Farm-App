@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" fill="none">
+  <rect width="512" height="512" rx="128" fill="#059669"/>
+  <g transform="translate(256,220)">
+    <ellipse cx="-80" cy="80" rx="70" ry="90" fill="#34d399" transform="rotate(-30)"/>
+    <ellipse cx="80" cy="80" rx="70" ry="90" fill="#34d399" transform="rotate(30)"/>
+    <ellipse cx="0" cy="110" rx="60" ry="85" fill="#6ee7b7" transform="rotate(0)"/>
+    <rect x="-8" y="0" width="16" height="200" rx="8" fill="#d97706"/>
+    <circle cx="0" cy="140" r="40" fill="#fbbf24"/>
+    <ellipse cx="-40" cy="180" rx="30" ry="10" fill="#065f46" transform="rotate(-10)"/>
+    <ellipse cx="40" cy="190" rx="30" ry="10" fill="#065f46" transform="rotate(10)"/>
+  </g>
+  <text x="256" y="420" text-anchor="middle" font-size="64" font-weight="bold" fill="white" font-family="sans-serif">🌱</text>
+</svg>

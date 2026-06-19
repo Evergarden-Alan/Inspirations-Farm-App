@@ -89,12 +89,25 @@ REPO_NAME=your-repo        # Repository name
 APP_PIN=1234               # Lock screen PIN (omit to skip auth in dev)
 ```
 
+### Phase 4 — PWA
+- **Manifest**: `src/app/manifest.ts` → `/manifest.webmanifest` (static)
+  - `display: standalone`, `theme_color: #059669`, portrait orientation
+  - SVG icon with `purpose: any`
+- **Service Worker**: `public/sw.js`
+  - Pre-caches `/` and `/manifest.webmanifest` on install
+  - Network-first strategy with cache fallback for non-API requests
+  - Skips `/api/*` entirely (always live)
+  - Auto-cleans old cache versions on activate
+- **Meta tags**: `layout.tsx` — viewport (`viewportFit: cover`, no user-scalable), `apple-mobile-web-app-capable`, theme-color
+- **Icon**: `public/icon.svg` — emerald rounded-rect with plant motif
+- **Domain**: [todo.alanevergarden.xyz](https://todo.alanevergarden.xyz)
+
 ### Build Status
 - TypeScript: ✅ zero errors
 - `next build`: ✅ compiled successfully
-- Routes: `ƒ /api/github`, `ƒ /api/daily`
+- Routes: `○ /`, `ƒ /api/github`, `ƒ /api/daily`, `○ /manifest.webmanifest`
 
 ### Next Up
-- [ ] PWA configuration (manifest, service worker)
-- [ ] Offline support
 - [ ] Deploy to Vercel
+- [ ] Replace SVG icon with proper PNG for iOS apple-touch-icon
+- [ ] Add push notifications
