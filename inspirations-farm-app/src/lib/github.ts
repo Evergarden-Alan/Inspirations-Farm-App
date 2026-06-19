@@ -366,16 +366,29 @@ export async function createDailyJournal(
 ): Promise<{ path: string; sha: string }> {
   const { owner, repo } = getConfig();
 
-  const yamlBlock = [
+  const template = [
     "---",
-    "type: daily",
+    "tags:",
+    "  - dairy",
     `date: ${date}`,
-    `created: ${getBeijingDateTimeString()}`,
     "---",
+    "",
+    "# 近期计划",
+    "",
+    "",
+    "",
+    "---",
+    "",
+    "# 当日日程",
+    "",
+    "",
+    "---",
+    "",
+    "# 本日总结",
     "",
   ].join("\n");
 
-  const encoded = Buffer.from(yamlBlock, "utf-8").toString("base64");
+  const encoded = Buffer.from(template, "utf-8").toString("base64");
   const filePath = `Journal/Daily/${date}.md`;
 
   const result = await githubFetch<{ content: { sha: string } }>(
@@ -461,6 +474,55 @@ export function insertSubtaskLine(
   }
 
   lines.splice(insertAt + 1, 0, newLine);
+  return lines.join("\n");
+}
+
+/**
+ * Insert a new top-level task line into the "# 当日日程" section.
+ *
+ * Algorithm:
+ * 1. Find "# 当日日程" heading
+ * 2. Find the next "---" or "# " heading → section end
+ * 3. Insert before section end (skip trailing blank lines inside the section)
+ * 4. Fallback: append to end of file if heading not found
+ */
+export function insertIntoDailySection(
+  content: string,
+  taskLine: string
+): string {
+  const lines = content.split("\n");
+
+  // Locate section start
+  let sectionStart = -1;
+  for (let i = 0; i < lines.length; i++) {
+    if (/^#\s+当日日程\s*$/.test(lines[i])) {
+      sectionStart = i;
+      break;
+    }
+  }
+
+  // Fallback: append to end
+  if (sectionStart === -1) {
+    return content.trimEnd() + "\n" + taskLine + "\n";
+  }
+
+  // Locate section end — next "---" or "# " after sectionStart
+  let sectionEnd = lines.length;
+  for (let i = sectionStart + 1; i < lines.length; i++) {
+    const trimmed = lines[i].trim();
+    if (trimmed === "---" || /^#\s/.test(trimmed)) {
+      sectionEnd = i;
+      break;
+    }
+  }
+
+  // Back up past trailing blank lines so the new task sits just before them
+  let insertAt = sectionEnd;
+  while (insertAt > sectionStart + 1 && lines[insertAt - 1].trim() === "") {
+    insertAt--;
+  }
+
+  lines.splice(insertAt, 0, taskLine);
   return lines.join("\n");
 }
 

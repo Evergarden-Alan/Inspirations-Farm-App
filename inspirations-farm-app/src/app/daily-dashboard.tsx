@@ -7,7 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { apiFetch, AuthError } from "@/lib/api";
 import { getBeijingDateString } from "@/lib/beijing-time";
-import { insertSubtaskLine } from "@/lib/github";
+import { insertSubtaskLine, insertIntoDailySection } from "@/lib/github";
 import { cascadeToggle, applyTaskChanges } from "@/lib/cascade";
 import type { DailyTask } from "@/lib/github";
 
@@ -121,7 +121,10 @@ export function DailyDashboard() {
     const text = newTask.trim();
     if (!text || !state?.content || !state.sha || !state.path) return;
 
-    const updatedContent = state.content + `\n- [ ] ${text}`;
+    const updatedContent = insertIntoDailySection(
+      state.content,
+      `- [ ] ${text}`
+    );
 
     setActing(true);
     setError(null);
