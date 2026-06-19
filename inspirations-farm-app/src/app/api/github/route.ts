@@ -31,12 +31,12 @@ export async function GET(req: NextRequest) {
 /**
  * POST /api/github
  * Creates a new timestamp-named .md file under Inspirations/.
- * Body: { content: string }
+ * Body: { content: string, priority?: string, tags?: string[] }
  */
 export async function POST(req: NextRequest) {
   if (!validatePin(req)) return deny();
   try {
-    const { content } = await req.json();
+    const { content, priority, tags } = await req.json();
 
     if (!content || typeof content !== "string") {
       return Response.json(
@@ -46,7 +46,12 @@ export async function POST(req: NextRequest) {
     }
 
     const filename = `${getBeijingTimestamp()}.md`;
-    const result = await createInspiration(filename, content);
+    const result = await createInspiration(
+      filename,
+      content,
+      priority || "p2",
+      Array.isArray(tags) ? tags : []
+    );
 
     return Response.json({ ok: true, ...result });
   } catch (err: unknown) {

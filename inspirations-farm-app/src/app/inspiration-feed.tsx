@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Check, Trash2, Send } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import { getSurvivalLabel } from "@/lib/time";
 import { apiFetch, AuthError } from "@/lib/api";
@@ -31,6 +32,8 @@ export function InspirationFeed() {
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [filterPriority, setFilterPriority] = useState("all");
   const [filterTag, setFilterTag] = useState("all");
+  const [newPriority, setNewPriority] = useState("p2");
+  const [newTags, setNewTags] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // ── Fetch list ──────────────────────────────────────
@@ -61,17 +64,25 @@ export function InspirationFeed() {
     const text = content.trim();
     if (!text || submitting) return;
 
+    // Preprocess tags: split by comma, trim, filter empty
+    const tags = newTags
+      .split(/[,，]/)
+      .map((t) => t.trim())
+      .filter(Boolean);
+
     setSubmitting(true);
     setError(null);
 
     try {
       const res = await apiFetch("/api/github", {
         method: "POST",
-        body: JSON.stringify({ content: text }),
+        body: JSON.stringify({ content: text, priority: newPriority, tags }),
       });
       const data = await res.json();
       if (data.ok) {
         setContent("");
+        setNewPriority("p2");
+        setNewTags("");
         textareaRef.current?.focus();
         await fetchItems();
       } else {
@@ -207,6 +218,50 @@ export function InspirationFeed() {
           onKeyDown={handleKeyDown}
           disabled={submitting}
         />
+
+        {/* Priority + Tags controls */}
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          {/* Priority selector */}
+          <div className="flex items-center gap-1">
+            <span className="text-xs text-slate-400 mr-1">优先级</span>
+            {["p0", "p1", "p2", "p3"].map((p) => {
+              const active = newPriority === p;
+              const color =
+                p === "p0"
+                  ? "bg-red-50 text-red-600 border-red-300"
+                  : p === "p1"
+                    ? "bg-amber-50 text-amber-600 border-amber-300"
+                    : p === "p2"
+                      ? "bg-blue-50 text-blue-600 border-blue-300"
+                      : "bg-slate-50 text-slate-500 border-slate-300";
+              return (
+                <button
+                  key={p}
+                  type="button"
+                  onClick={() => setNewPriority(p)}
+                  disabled={submitting}
+                  className={`px-2 py-0.5 text-xs rounded border transition-colors ${
+                    active
+                      ? `${color} font-medium`
+                      : "border-transparent text-slate-400 hover:bg-slate-100"
+                  }`}
+                >
+                  {p.toUpperCase()}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Tags input */}
+          <Input
+            placeholder="标签, 逗号分隔"
+            value={newTags}
+            onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNewTags(e.target.value)}
+            disabled={submitting}
+            className="h-8 text-xs border-slate-200 focus-visible:ring-emerald-500 sm:max-w-[180px]"
+          />
+        </div>
+
         <div className="flex items-center justify-between">
           <span className="text-xs text-slate-400">Ctrl + Enter 快捷发送</span>
           <Button

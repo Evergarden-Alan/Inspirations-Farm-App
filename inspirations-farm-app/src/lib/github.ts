@@ -102,17 +102,22 @@ export async function listInspirations(): Promise<FileListItem[]> {
 /** Create a new .md file under Inspirations/ with the given basename and body */
 export async function createInspiration(
   filename: string,
-  content: string
+  content: string,
+  priority: string = "p2",
+  tags: string[] = []
 ): Promise<{ path: string; url: string }> {
   const { owner, repo } = getConfig();
+
+  const tagsStr =
+    tags.length > 0 ? `tags: [${tags.join(", ")}]` : "tags: []";
 
   const yamlBlock = [
     "---",
     "type: inspiration",
     "status: active",
     `create: ${getBeijingDateTimeString()}`,
-    "priority: p2",
-    "tags: []",
+    `priority: ${priority}`,
+    tagsStr,
     "---",
     "",
     `# ${content}`,
