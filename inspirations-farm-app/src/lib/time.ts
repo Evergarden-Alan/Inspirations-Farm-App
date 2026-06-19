@@ -49,16 +49,16 @@ export function getSurvivalLabel(createdAt: string): string {
   const days = Math.floor(diffMs / 86_400_000);
 
   if (minutes < 60) {
-    return `⏳ 存活: ${minutes}分钟`;
+    return `⏳ ${minutes}分钟前`;
   }
 
   if (hours < 24) {
-    return `⏳ 存活: ${hours}小时`;
+    return `⏳ ${hours}小时前`;
   }
 
   const remainHours = hours - days * 24;
   if (remainHours > 0) {
-    return `⏳ 存活: ${days}天 ${remainHours}小时`;
+    return `⏳ ${days}天${remainHours}小时前`;
   }
-  return `⏳ 存活: ${days}天`;
+  return `⏳ ${days}天前`;
 }

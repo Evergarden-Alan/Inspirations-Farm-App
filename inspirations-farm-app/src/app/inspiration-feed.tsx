@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Check, Trash2, Send } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
@@ -17,6 +17,8 @@ interface Inspiration {
   title: string;
   createdAt: string;
   status: string;
+  priority: string;
+  tags: string[];
   content: string;
 }
 
@@ -27,6 +29,8 @@ export function InspirationFeed() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
+  const [filterPriority, setFilterPriority] = useState("all");
+  const [filterTag, setFilterTag] = useState("all");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // ── Fetch list ──────────────────────────────────────
@@ -163,6 +167,23 @@ export function InspirationFeed() {
     }
   }
 
+  // ── Filtering ───────────────────────────────────────
+  const allTags = useMemo(
+    () => [...new Set(items.flatMap((i) => i.tags || []))].sort(),
+    [items]
+  );
+
+  const filteredItems = useMemo(() => {
+    let result = items;
+    if (filterPriority !== "all") {
+      result = result.filter((i) => i.priority === filterPriority);
+    }
+    if (filterTag !== "all") {
+      result = result.filter((i) => i.tags?.includes(filterTag));
+    }
+    return result;
+  }, [items, filterPriority, filterTag]);
+
   // ── Ctrl+Enter ──────────────────────────────────────
   function handleKeyDown(e: React.KeyboardEvent) {
     if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
@@ -205,18 +226,83 @@ export function InspirationFeed() {
         </p>
       )}
 
+      {/* Filter Bar */}
+      {items.length > 0 && (
+        <section className="space-y-2">
+          {/* Priority filter */}
+          <div className="flex items-center gap-1.5 flex-wrap">
+            {["all", "p0", "p1", "p2", "p3"].map((p) => {
+              const active = filterPriority === p;
+              const label = p === "all" ? "全部" : p.toUpperCase();
+              const color =
+                p === "p0"
+                  ? "text-red-600 bg-red-50"
+                  : p === "p1"
+                    ? "text-amber-600 bg-amber-50"
+                    : p === "p2"
+                      ? "text-blue-600 bg-blue-50"
+                      : p === "p3"
+                        ? "text-slate-500 bg-slate-100"
+                        : "";
+              return (
+                <button
+                  key={p}
+                  onClick={() => setFilterPriority(p)}
+                  className={`px-2.5 py-1 text-xs rounded-full transition-colors ${
+                    active
+                      ? `${color} font-medium`
+                      : "text-slate-400 hover:text-slate-600 hover:bg-slate-100"
+                  }`}
+                >
+                  {label}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Tag filter */}
+          {allTags.length > 0 && (
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <button
+                onClick={() => setFilterTag("all")}
+                className={`px-2.5 py-1 text-xs rounded-full transition-colors ${
+                  filterTag === "all"
+                    ? "bg-slate-200 text-slate-700 font-medium"
+                    : "text-slate-400 hover:text-slate-600 hover:bg-slate-100"
+                }`}
+              >
+                全部
+              </button>
+              {allTags.map((tag) => (
+                <button
+                  key={tag}
+                  onClick={() => setFilterTag(tag)}
+                  className={`px-2 py-0.5 text-xs rounded-full transition-colors ${
+                    filterTag === tag
+                      ? "bg-slate-200 text-slate-700 font-medium"
+                      : "bg-slate-100 text-slate-500 hover:bg-slate-200"
+                  }`}
+                >
+                  {tag}
+                </button>
+              ))}
+            </div>
+          )}
+        </section>
+      )}
+
       {/* Timeline */}
       <section className="space-y-3">
         {loading ? (
           <p className="text-center text-sm text-slate-400 py-12">
             正在加载灵感...
           </p>
-        ) : items.length === 0 ? (
+        ) : filteredItems.length === 0 ? (
           <p className="text-center text-sm text-slate-400 py-12">
-            还没有灵感，种下第一个吧 🌱
+            {items.length === 0 ? "还没有灵感，种下第一个吧 🌱" : "没有匹配的灵感"}
           </p>
         ) : (
-          items.map((item) => (
+          filteredItems.map((item) => (
             <InspirationCard
               key={item.sha}
               item={item}
@@ -251,13 +337,24 @@ function InspirationCard({
 }) {
   const survival = getSurvivalLabel(item.createdAt);
 
+  // Priority → left border class
+  const priorityBorder: Record<string, string> = {
+    p0: "border-l-red-500",
+    p1: "border-l-amber-500",
+    p2: "border-l-blue-400",
+    p3: "border-l-slate-300",
+  };
+  const borderColor = priorityBorder[item.priority] || priorityBorder.p2;
+
   return (
-    <Card className="bg-white border-slate-200/60 shadow-sm group">
+    <Card
+      className={`bg-white border-slate-200/60 shadow-sm group overflow-hidden border-l-4 ${borderColor}`}
+    >
       <CardContent className="px-4 pt-4 pb-2 space-y-2.5">
         {/* Title + badge */}
         <div className="flex items-start gap-2">
           <span className="text-xs text-slate-400 font-mono flex-shrink-0 mt-0.5">
-            {item.id}
+            {item.id.slice(0, 10)}
           </span>
           <p className="text-sm font-medium text-slate-800 leading-snug">
             {item.title}
@@ -269,6 +366,20 @@ function InspirationCard({
           <p className="text-xs text-slate-500 leading-relaxed line-clamp-2">
             {item.content}
           </p>
+        )}
+
+        {/* Tags */}
+        {item.tags && item.tags.filter(Boolean).length > 0 && (
+          <div className="flex flex-wrap gap-1.5">
+            {item.tags.filter(Boolean).map((tag) => (
+              <span
+                key={tag}
+                className="px-2 py-0.5 text-xs rounded-full bg-slate-100 text-slate-600"
+              >
+                {tag}
+              </span>
+            ))}
+          </div>
         )}
 
         {/* Footer: survival time + actions */}

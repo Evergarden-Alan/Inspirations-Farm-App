@@ -80,6 +80,8 @@ export interface InspirationItem {
   title: string; // extracted from first # heading
   createdAt: string;
   status: string; // "active" | "completed" from frontmatter
+  priority: string; // p0 | p1 | p2 | p3, default "p2"
+  tags: string[]; // tag list, default []
   content: string; // body after # heading
 }
 
@@ -109,6 +111,8 @@ export async function createInspiration(
     "type: inspiration",
     "status: active",
     `create: ${getBeijingDateTimeString()}`,
+    "priority: p2",
+    "tags: []",
     "---",
     "",
     `# ${content}`,
@@ -185,14 +189,28 @@ export async function listInspirationsWithContent(): Promise<
         const { frontmatter, body } = parseMarkdown(raw);
         const title = extractTitle(body);
         const content = stripHeading(body);
+
+        // Extract create date from raw string to bypass gray-matter date coercion
+        const createMatch = raw.match(/^create:\s*(.+)$/m);
+        const createdAt = createMatch ? createMatch[1].trim() : String(frontmatter.create ?? "");
+
+        const tagsRaw = frontmatter.tags;
+        const tags: string[] = Array.isArray(tagsRaw)
+          ? tagsRaw.filter((t: unknown) => typeof t === "string" && t.length > 0)
+          : typeof tagsRaw === "string" && tagsRaw.length > 0
+            ? [tagsRaw]
+            : [];
+
         return {
           name: f.name,
           path: f.path,
           sha: f.sha,
           id: f.name.replace(/\.md$/, ""),
           title: title || content.slice(0, 40),
-          createdAt: String(frontmatter.create ?? ""),
+          createdAt,
           status: String(frontmatter.status ?? "active"),
+          priority: String(frontmatter.priority || "p2"),
+          tags,
           content,
         };
       })

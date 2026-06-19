@@ -24,10 +24,11 @@ A mobile-first PWA personal inspiration management system. GitHub-backed headles
 
 - **🔐 PIN Lock Screen** — 4-6 digit access code, 401 auto-lockout
 - **📝 Inspiration Pool** — capture ideas with timestamped filenames, YAML frontmatter
+- **🏷️ Priority & Tags** — p0–p3 priority border + tag pills with filter bar
 - **📅 Daily Dashboard** — journal with nested task checkboxes, parent-child cascade logic
 - **🔗 Inspiration → Task Linking** — push inspirations to today's journal as `[[timestamp|title]]` wiki-links
 - **✅ Cascade Archive** — completing a linked task auto-archives the inspiration
-- **⏳ Survival Timer** — Beijing-time-accurate relative time labels
+- **⏳ Relative Time** — Beijing-timezone-aware "X小时前" labels
 - **🌳 Nested Tasks** — markdown indent-parsed tree with parent-child state sync
 - **🔄 Daily Rollover** — cron job at Beijing 00:01 migrates undone tasks to tomorrow
 - **📋 Template Support** — `Templates/Diary_Template.md` with `{{DATE:YYYY-MM-DD}}` placeholder
