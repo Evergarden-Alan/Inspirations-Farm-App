@@ -1,17 +1,20 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Check, Trash2 } from "lucide-react";
+import { Check, Trash2, Send } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { getSurvivalLabel } from "@/lib/time";
 import { apiFetch, AuthError } from "@/lib/api";
+import { getBeijingDateString } from "@/lib/beijing-time";
 
 interface Inspiration {
   name: string;
   path: string;
   sha: string;
+  id: string;
+  title: string;
   createdAt: string;
   status: string;
   content: string;
@@ -136,6 +139,30 @@ export function InspirationFeed() {
     autoResize(e.target);
   }
 
+  // ── Push to daily ────────────────────────────────────
+  const [pushingId, setPushingId] = useState<string | null>(null);
+
+  async function handlePushToDaily(item: Inspiration) {
+    setPushingId(item.id);
+    setError(null);
+    try {
+      const res = await apiFetch("/api/daily", {
+        method: "POST",
+        body: JSON.stringify({
+          ideaId: item.id,
+          ideaTitle: item.title,
+          date: getBeijingDateString(),
+        }),
+      });
+      const data = await res.json();
+      if (!data.ok) setError(data.error ?? "Failed to push");
+    } catch (err) {
+      if (!(err instanceof AuthError)) setError("Network error");
+    } finally {
+      setPushingId(null);
+    }
+  }
+
   // ── Ctrl+Enter ──────────────────────────────────────
   function handleKeyDown(e: React.KeyboardEvent) {
     if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
@@ -195,7 +222,9 @@ export function InspirationFeed() {
               item={item}
               onComplete={handleComplete}
               onDelete={handleDelete}
+              onPush={handlePushToDaily}
               disabled={actionLoading === item.sha}
+              pushing={pushingId === item.id}
             />
           ))
         )}
@@ -209,30 +238,54 @@ function InspirationCard({
   item,
   onComplete,
   onDelete,
+  onPush,
   disabled,
+  pushing,
 }: {
   item: Inspiration;
   onComplete: (item: Inspiration) => void;
   onDelete: (item: Inspiration) => void;
+  onPush: (item: Inspiration) => void;
   disabled: boolean;
+  pushing: boolean;
 }) {
   const survival = getSurvivalLabel(item.createdAt);
 
   return (
     <Card className="bg-white border-slate-200/60 shadow-sm group">
       <CardContent className="px-4 pt-4 pb-2 space-y-2.5">
-        {/* Content */}
-        <p className="text-sm text-slate-700 leading-relaxed whitespace-pre-wrap">
-          {item.content}
-        </p>
-
-        {/* Footer: survival time + actions in one row */}
-        <div className="flex items-center justify-between pt-2 border-t border-slate-100">
-          <span className="text-xs text-slate-400 tracking-wide">
-            {survival}
+        {/* Title + badge */}
+        <div className="flex items-start gap-2">
+          <span className="text-xs text-slate-400 font-mono flex-shrink-0 mt-0.5">
+            {item.id}
           </span>
+          <p className="text-sm font-medium text-slate-800 leading-snug">
+            {item.title}
+          </p>
+        </div>
+
+        {/* Content preview */}
+        {item.content && (
+          <p className="text-xs text-slate-500 leading-relaxed line-clamp-2">
+            {item.content}
+          </p>
+        )}
+
+        {/* Footer: survival time + actions */}
+        <div className="flex items-center justify-between pt-2 border-t border-slate-100">
+          <span className="text-xs text-slate-400">{survival}</span>
 
           <div className="flex items-center gap-1">
+            {/* Push to daily */}
+            <button
+              onClick={() => onPush(item)}
+              disabled={disabled || pushing}
+              className="flex items-center justify-center min-w-[44px] min-h-[44px] rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50 active:bg-blue-100 transition-all disabled:opacity-30 md:opacity-0 md:group-hover:opacity-100 touch-manipulation"
+              title="推送到今日"
+            >
+              <Send className={`w-4 h-4 ${pushing ? "animate-pulse" : ""}`} />
+            </button>
+
             {/* Complete */}
             <button
               onClick={() => onComplete(item)}

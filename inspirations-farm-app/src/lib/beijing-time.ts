@@ -41,3 +41,17 @@ export function getBeijingTimestamp(): string {
   const dt = getBeijingDateTimeString();
   return dt.replace(" ", "-").replace(/:/g, "");
 }
+
+/** Returns tomorrow's date in Beijing time as YYYY-MM-DD */
+export function getTomorrowBeijingDate(): string {
+  // Parse today's Beijing date as midnight Beijing time, then add 24h
+  const parts = getBeijingDateString().split("-").map(Number);
+  const todayBeijing = new Date(parts[0], parts[1] - 1, parts[2], 0, 0, 0);
+  const tomorrow = new Date(todayBeijing.getTime() + 86400000);
+  return new Intl.DateTimeFormat(LOCALE, {
+    timeZone: TZ,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(tomorrow);
+}

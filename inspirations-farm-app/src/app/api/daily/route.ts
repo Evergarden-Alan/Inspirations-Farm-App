@@ -3,6 +3,7 @@ import {
   getDailyJournal,
   createDailyJournal,
   updateDailyJournal,
+  insertIntoDailySection,
 } from "@/lib/github";
 import { validatePin } from "@/lib/auth";
 
@@ -35,12 +36,52 @@ export async function GET(req: NextRequest) {
 
 /**
  * POST /api/daily
- * Creates a new daily journal file.
+ *   { date } — creates a new daily journal file
+ *   { ideaId, ideaTitle, date } — pushes an inspiration into today's journal
  */
 export async function POST(req: NextRequest) {
   if (!validatePin(req)) return deny();
   try {
-    const { date } = await req.json();
+    const body = await req.json();
+
+    // ── Push inspiration to daily ──────────────────
+    if (body.ideaId && body.ideaTitle) {
+      const date = body.date;
+      if (!date || typeof date !== "string") {
+        return Response.json(
+          { ok: false, error: "Missing 'date' field" },
+          { status: 400 }
+        );
+      }
+
+      const taskLine = `- [ ] [[${body.ideaId}|${body.ideaTitle}]]`;
+
+      // Ensure the journal exists
+      let journal = await getDailyJournal(date);
+      if (!journal.exists) {
+        const created = await createDailyJournal(date);
+        journal = await getDailyJournal(date);
+        journal.sha = created.sha;
+        journal.path = created.path;
+        journal.content = "";
+      }
+
+      const newContent = insertIntoDailySection(
+        journal.content || "",
+        taskLine
+      );
+
+      const result = await updateDailyJournal(
+        journal.path!,
+        journal.sha!,
+        newContent
+      );
+
+      return Response.json({ ok: true, sha: result.sha });
+    }
+
+    // ── Create journal ─────────────────────────────
+    const { date } = body;
     if (!date || typeof date !== "string") {
       return Response.json(
         { ok: false, error: "Missing or invalid 'date' field" },

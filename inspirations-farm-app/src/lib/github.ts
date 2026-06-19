@@ -3,9 +3,11 @@
  * All GitHub API calls go through here to keep auth and base URL centralized.
  */
 
+import matter from "gray-matter";
 import { getBeijingDateTimeString } from "./beijing-time";
 
 const GITHUB_API = "https://api.github.com";
+const LINK_RE = /\[\[(\d{4}-\d{2}-\d{2}-\d{6})(?:\|(.*?))?\]\]/;
 
 function getConfig() {
   const pat = process.env.GITHUB_PAT;
@@ -73,9 +75,11 @@ export interface InspirationItem {
   name: string;
   path: string;
   sha: string;
+  id: string; // timestamp from filename, e.g. "2026-06-19-113201"
+  title: string; // extracted from first # heading
   createdAt: string;
   status: string; // "active" | "completed" from frontmatter
-  content: string;
+  content: string; // body after # heading
 }
 
 // ── API methods ────────────────────────────────────────
@@ -143,31 +147,26 @@ export async function getFileContent(filePath: string): Promise<string> {
 
 // ── Markdown parsing ───────────────────────────────────
 
-interface ParsedMarkdown {
-  frontmatter: Record<string, string>;
+export interface ParsedMarkdown {
+  frontmatter: Record<string, string | string[]>;
   body: string;
 }
 
 /** Parse YAML frontmatter and body from a markdown string */
 export function parseMarkdown(text: string): ParsedMarkdown {
-  const match = text.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
-  if (!match) return { frontmatter: {}, body: text };
+  const { data, content } = matter(text);
+  return { frontmatter: data as Record<string, string | string[]>, body: content.trim() };
+}
 
-  const fm: Record<string, string> = {};
-  for (const line of match[1].split("\n")) {
-    const colon = line.indexOf(":");
-    if (colon > 0) {
-      fm[line.slice(0, colon).trim()] = line.slice(colon + 1).trim();
-    }
-  }
+/** Extract the first # heading text from a markdown body */
+export function extractTitle(body: string): string {
+  const match = body.match(/^#\s+(.*)$/m);
+  return match ? match[1].trim() : "";
+}
 
-  // Strip leading "# " heading if present
-  let body = match[2].trim();
-  if (body.startsWith("# ")) {
-    body = body.slice(2);
-  }
-
-  return { frontmatter: fm, body };
+/** Strip the first # heading line from the body */
+export function stripHeading(body: string): string {
+  return body.replace(/^#\s+.*\n?/m, "").trim();
 }
 
 // ── Combined listing ───────────────────────────────────
@@ -178,20 +177,26 @@ export async function listInspirationsWithContent(): Promise<
 > {
   const files = await listInspirations();
 
-  const items = await Promise.all(
-    files.map(async (f) => {
-      const raw = await getFileContent(f.path);
-      const { frontmatter, body } = parseMarkdown(raw);
-      return {
-        name: f.name,
-        path: f.path,
-        sha: f.sha,
-        createdAt: frontmatter.create ?? "",
-        status: frontmatter.status ?? "active",
-        content: body,
-      };
-    })
-  );
+  const items = (
+    await Promise.all(
+      files.map(async (f) => {
+        const raw = await getFileContent(f.path);
+        const { frontmatter, body } = parseMarkdown(raw);
+        const title = extractTitle(body);
+        const content = stripHeading(body);
+        return {
+          name: f.name,
+          path: f.path,
+          sha: f.sha,
+          id: f.name.replace(/\.md$/, ""),
+          title: title || content.slice(0, 40),
+          createdAt: String(frontmatter.create ?? ""),
+          status: String(frontmatter.status ?? "active"),
+          content,
+        };
+      })
+    )
+  ).filter((item) => item.status !== "completed");
 
   // Sort newest first by createdAt (descending)
   items.sort(
@@ -256,18 +261,51 @@ export async function updateFileStatus(
   return { path: result.content.path, url: result.content.html_url };
 }
 
+// ── Archive inspiration ────────────────────────────────
+
+/** Set an inspiration's status to completed by file path */
+export async function archiveInspiration(filePath: string): Promise<void> {
+  const { owner, repo } = getConfig();
+
+  // Get current content + sha
+  const data = await githubFetch<{
+    sha: string;
+    content: string;
+    encoding: string;
+  }>(`/repos/${owner}/${repo}/contents/${filePath}`);
+
+  if (data.encoding !== "base64") {
+    throw new Error(`Unexpected encoding: ${data.encoding}`);
+  }
+  const raw = Buffer.from(data.content, "base64").toString("utf-8");
+
+  // Replace status to completed
+  const updated = raw.replace(/^status:\s*.*$/m, "status: completed");
+
+  const encoded = Buffer.from(updated, "utf-8").toString("base64");
+
+  await githubFetch(`/repos/${owner}/${repo}/contents/${filePath}`, {
+    method: "PUT",
+    body: JSON.stringify({
+      message: `Archive inspiration`,
+      content: encoded,
+      sha: data.sha,
+    }),
+    headers: { "Content-Type": "application/json" },
+  });
+}
+
 // ── Daily Journal ─────────────────────────────────────
 
 export interface DailyTask {
   id: number;
   parentId: number | null;
-  text: string;
+  text: string; // raw text after "- [ ] " for markdown reconstruction
+  displayText: string; // text shown in the UI (alias or original)
+  sourceIdeaId: string | null; // extracted from [[timestamp|alias]] or null
   done: boolean;
-  /** 0 = top-level, 1 = first indent, etc. */
   indentLevel: number;
-  /** Raw leading whitespace for exact line reconstruction on toggle */
   indent: string;
-  /** Original line index in the markdown for insertion calculations */
   lineNumber: number;
 }
 
@@ -290,7 +328,7 @@ function calcIndent(ws: string): { level: number; raw: string } {
   return { level: Math.floor(count / 2), raw: ws };
 }
 
-function parseTasks(markdown: string): DailyTask[] {
+export function parseTasks(markdown: string): DailyTask[] {
   const lines = markdown.split("\n");
   const tasks: DailyTask[] = [];
   let id = 0;
@@ -299,11 +337,22 @@ function parseTasks(markdown: string): DailyTask[] {
     const match = line.match(/^(\s*)-\s*\[([ xX])\]\s+(.*)$/);
     if (match) {
       const { level, raw } = calcIndent(match[1]);
+      const rawText = match[3].trim();
+
+      // Parse [[timestamp|alias]] double-bracket link
+      const linkMatch = rawText.match(LINK_RE);
+      const sourceIdeaId = linkMatch ? linkMatch[1] : null;
+      const displayText = linkMatch
+        ? (linkMatch[2] || linkMatch[1])
+        : rawText;
+
       tasks.push({
         id: id++,
         parentId: null,
         done: match[2].toLowerCase() === "x",
-        text: match[3].trim(),
+        text: rawText,
+        displayText,
+        sourceIdeaId,
         indentLevel: level,
         indent: raw,
         lineNumber: lineNum,
@@ -349,7 +398,7 @@ export async function getDailyJournal(date: string): Promise<DailyJournal> {
       path: filePath,
       sha: data.sha,
       content: raw,
-      date: frontmatter.date ?? date,
+      date: String(frontmatter.date ?? date),
       tasks: parseTasks(raw),
     };
   } catch (err: unknown) {

@@ -106,6 +106,21 @@ export function DailyDashboard() {
       const data = await res.json();
       if (data.ok) {
         setState({ ...state, content: updatedContent, sha: data.sha, tasks: newTasks });
+
+        // Archive linked inspirations that became completed
+        for (let i = 0; i < newTasks.length; i++) {
+          const oldDone = oldTasks[i].done;
+          const newDone = newTasks[i].done;
+          if (!oldDone && newDone && newTasks[i].sourceIdeaId) {
+            apiFetch("/api/github", {
+              method: "PUT",
+              body: JSON.stringify({
+                ideaId: newTasks[i].sourceIdeaId,
+                status: "completed",
+              }),
+            }).catch(() => {});
+          }
+        }
       } else {
         setError(data.error ?? "Failed to update");
       }
@@ -266,7 +281,12 @@ export function DailyDashboard() {
                               : "text-slate-700"
                         }`}
                       >
-                        {task.text}
+                        {task.displayText}
+                        {task.sourceIdeaId && (
+                          <span className="ml-1.5 text-[10px] text-slate-400 font-mono align-middle">
+                            #{task.sourceIdeaId.slice(-6)}
+                          </span>
+                        )}
                       </span>
 
                       {/* Add sub-task button — visible on hover */}
