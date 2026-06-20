@@ -340,6 +340,7 @@ export interface DailyJournal {
   content?: string;
   date?: string;
   tasks?: DailyTask[];
+  notes?: DailyNote[];
 }
 
 function calcIndent(ws: string): { level: number; raw: string } {
@@ -424,6 +425,7 @@ export async function getDailyJournal(date: string): Promise<DailyJournal> {
       content: raw,
       date: String(frontmatter.date ?? date),
       tasks: parseTasks(raw),
+      notes: parseDailyNotes(raw),
     };
   } catch (err: unknown) {
     if (err instanceof Error && err.message.includes("404")) {
@@ -458,6 +460,9 @@ export async function createDailyJournal(
     "---",
     "",
     "# 本日总结",
+    "",
+    "## 今日杂记",
+    "",
     "",
   ].join("\n");
 
@@ -596,6 +601,112 @@ export function insertIntoDailySection(
   }
 
   lines.splice(insertAt, 0, taskLine);
+  return lines.join("\n");
+}
+
+// ── Daily Notes (今日杂记) ────────────────────────────
+
+export interface DailyNote {
+  time: string; // HH:mm
+  text: string;
+}
+
+/** Extract notes from the ## 今日杂记 section */
+export function parseDailyNotes(content: string): DailyNote[] {
+  const lines = content.split("\n");
+
+  // Locate ## 今日杂记
+  let sectionStart = -1;
+  for (let i = 0; i < lines.length; i++) {
+    if (/^##\s+今日杂记\s*$/.test(lines[i])) {
+      sectionStart = i;
+      break;
+    }
+  }
+  if (sectionStart === -1) return [];
+
+  // Find section end
+  let sectionEnd = lines.length;
+  for (let i = sectionStart + 1; i < lines.length; i++) {
+    const t = lines[i].trim();
+    if (/^#\s/.test(t) || t === "---") {
+      sectionEnd = i;
+      break;
+    }
+  }
+
+  const notes: DailyNote[] = [];
+  const noteRe = /^-\s+\*\*(\d{2}:\d{2})\*\*\s+(.*)$/;
+  for (let i = sectionStart + 1; i < sectionEnd; i++) {
+    const match = lines[i].match(noteRe);
+    if (match) {
+      notes.push({ time: match[1], text: match[2].trim() });
+    }
+  }
+  return notes;
+}
+
+/**
+ * Append a timestamped note line to the ## 今日杂记 section.
+ * If the section doesn't exist, creates it after # 本日总结.
+ */
+export function insertIntoDailyNotesSection(
+  content: string,
+  time: string,
+  noteText: string
+): string {
+  const lines = content.split("\n");
+  const noteLine = `- **${time}** ${noteText}`;
+
+  // 1) Try to find ## 今日杂记
+  let sectionStart = -1;
+  for (let i = 0; i < lines.length; i++) {
+    if (/^##\s+今日杂记\s*$/.test(lines[i])) {
+      sectionStart = i;
+      break;
+    }
+  }
+
+  if (sectionStart === -1) {
+    // Create the section after # 本日总结
+    let summaryIdx = -1;
+    for (let i = 0; i < lines.length; i++) {
+      if (/^#\s+本日总结\s*$/.test(lines[i])) {
+        summaryIdx = i;
+        break;
+      }
+    }
+    if (summaryIdx === -1) {
+      // Fallback: append to end
+      return content.trimEnd() + "\n\n## 今日杂记\n\n" + noteLine + "\n";
+    }
+    // Insert ## 今日杂记 heading + note after # 本日总结
+    // Find the next --- or # heading to place the heading before
+    let insertAt = summaryIdx + 1;
+    while (insertAt < lines.length && lines[insertAt].trim() === "") {
+      insertAt++;
+    }
+    lines.splice(insertAt, 0, "", "## 今日杂记", "", noteLine);
+    return lines.join("\n");
+  }
+
+  // 2) Find section end
+  let sectionEnd = lines.length;
+  for (let i = sectionStart + 1; i < lines.length; i++) {
+    const t = lines[i].trim();
+    if (/^#\s/.test(t) || t === "---") {
+      sectionEnd = i;
+      break;
+    }
+  }
+
+  // 3) Insert before section end, skipping trailing blanks
+  let insertAt = sectionEnd;
+  while (insertAt > sectionStart + 1 && lines[insertAt - 1].trim() === "") {
+    insertAt--;
+  }
+
+  lines.splice(insertAt, 0, noteLine);
   return lines.join("\n");
 }
 

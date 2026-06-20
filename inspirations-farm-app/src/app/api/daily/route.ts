@@ -1,11 +1,14 @@
 import { NextRequest } from "next/server";
+import { revalidatePath } from "next/cache";
 import {
   getDailyJournal,
   createDailyJournal,
   updateDailyJournal,
   insertIntoDailySection,
+  insertIntoDailyNotesSection,
 } from "@/lib/github";
 import { validatePin } from "@/lib/auth";
+import { getBeijingDateTimeString } from "@/lib/beijing-time";
 
 function deny() {
   return Response.json({ ok: false, error: "Unauthorized" }, { status: 401 });
@@ -44,6 +47,47 @@ export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
 
+    // ── Add daily note ────────────────────────────
+    if (body.action === "addNote") {
+      const date = body.date;
+      const content = body.content;
+      if (!date || !content) {
+        return Response.json(
+          { ok: false, error: "Missing 'date' or 'content'" },
+          { status: 400 }
+        );
+      }
+
+      // Extract HH:mm from Beijing datetime (e.g. "2026-06-19 14:30:00" → "14:30")
+      const bjTime = getBeijingDateTimeString();
+      const time = bjTime.slice(11, 16);
+
+      // Ensure journal exists
+      let journal = await getDailyJournal(date);
+      if (!journal.exists) {
+        const created = await createDailyJournal(date);
+        journal = await getDailyJournal(date);
+        journal.sha = created.sha;
+        journal.path = created.path;
+        journal.content = "";
+      }
+
+      const newContent = insertIntoDailyNotesSection(
+        journal.content || "",
+        time,
+        content
+      );
+
+      const result = await updateDailyJournal(
+        journal.path!,
+        journal.sha!,
+        newContent
+      );
+
+      revalidatePath("/");
+      return Response.json({ ok: true, sha: result.sha, time });
+    }
+
     // ── Push inspiration to daily ──────────────────
     if (body.ideaId && body.ideaTitle) {
       const date = body.date;
@@ -77,6 +121,7 @@ export async function POST(req: NextRequest) {
         newContent
       );
 
+      revalidatePath("/");
       return Response.json({ ok: true, sha: result.sha });
     }
 
@@ -90,6 +135,7 @@ export async function POST(req: NextRequest) {
     }
 
     const result = await createDailyJournal(date);
+    revalidatePath("/");
     return Response.json({ ok: true, ...result });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Unknown error";
@@ -114,6 +160,7 @@ export async function PUT(req: NextRequest) {
     }
 
     const result = await updateDailyJournal(path, sha, content);
+    revalidatePath("/");
     return Response.json({ ok: true, ...result });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Unknown error";

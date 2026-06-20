@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import { revalidatePath } from "next/cache";
 import {
   listInspirationsWithContent,
   createInspiration,
@@ -53,6 +54,7 @@ export async function POST(req: NextRequest) {
       Array.isArray(tags) ? tags : []
     );
 
+    revalidatePath("/");
     return Response.json({ ok: true, ...result });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Unknown error";
@@ -101,6 +103,7 @@ export async function PUT(req: NextRequest) {
     if (body.ideaId) {
       const filePath = `Inspirations/${body.ideaId}.md`;
       await archiveInspiration(filePath);
+      revalidatePath("/");
       return Response.json({ ok: true, path: filePath });
     }
 

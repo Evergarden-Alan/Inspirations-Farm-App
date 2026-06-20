@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { Check, Trash2, Send } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
@@ -35,6 +36,7 @@ export function InspirationFeed() {
   const [newPriority, setNewPriority] = useState("p2");
   const [newTags, setNewTags] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const router = useRouter();
 
   // ── Fetch list ──────────────────────────────────────
   const fetchItems = useCallback(async () => {
@@ -57,6 +59,13 @@ export function InspirationFeed() {
 
   useEffect(() => {
     fetchItems();
+
+    // Listen for inspiration updates from other components (e.g. task archive)
+    function handleUpdate() {
+      fetchItems();
+    }
+    window.addEventListener("inspiration:updated", handleUpdate);
+    return () => window.removeEventListener("inspiration:updated", handleUpdate);
   }, [fetchItems]);
 
   // ── Create inspiration ──────────────────────────────
@@ -85,6 +94,7 @@ export function InspirationFeed() {
         setNewTags("");
         textareaRef.current?.focus();
         await fetchItems();
+        router.refresh();
       } else {
         setError(data.error ?? "Failed to create");
       }
@@ -170,7 +180,12 @@ export function InspirationFeed() {
         }),
       });
       const data = await res.json();
-      if (!data.ok) setError(data.error ?? "Failed to push");
+      if (data.ok) {
+        window.dispatchEvent(new CustomEvent("daily:updated"));
+        router.refresh();
+      } else {
+        setError(data.error ?? "Failed to push");
+      }
     } catch (err) {
       if (!(err instanceof AuthError)) setError("Network error");
     } finally {

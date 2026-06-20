@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { Plus, Loader2, Circle, CheckCircle2, CornerDownRight } from "lucide-react";
+import { Plus, Loader2, Circle, CheckCircle2, CornerDownRight, Check } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -25,7 +25,7 @@ export function DailyDashboard() {
   const [acting, setActing] = useState(false);
   const [newTask, setNewTask] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [addSubFor, setAddSubFor] = useState<number | null>(null); // task id
+  const [addSubFor, setAddSubFor] = useState<number | null>(null);
   const [subText, setSubText] = useState("");
   const date = getBeijingDateString();
 
@@ -54,6 +54,12 @@ export function DailyDashboard() {
 
   useEffect(() => {
     fetchJournal();
+
+    function handleDailyUpdate() {
+      fetchJournal();
+    }
+    window.addEventListener("daily:updated", handleDailyUpdate);
+    return () => window.removeEventListener("daily:updated", handleDailyUpdate);
   }, [fetchJournal]);
 
   // ── Create journal ──────────────────────────────────
@@ -118,7 +124,11 @@ export function DailyDashboard() {
                 ideaId: newTasks[i].sourceIdeaId,
                 status: "completed",
               }),
-            }).catch(() => {});
+            })
+              .then(() => {
+                window.dispatchEvent(new CustomEvent("inspiration:updated"));
+              })
+              .catch(() => {});
           }
         }
       } else {
@@ -289,7 +299,7 @@ export function DailyDashboard() {
                         )}
                       </span>
 
-                      {/* Add sub-task button — visible on hover */}
+                      {/* Add sub-task button — mobile always visible, desktop hover */}
                       {task.indentLevel < 4 && (
                         <span
                           onClick={(e) => {
@@ -297,7 +307,7 @@ export function DailyDashboard() {
                             setAddSubFor(task.id);
                             setSubText("");
                           }}
-                          className="ml-auto opacity-0 group-hover/task:opacity-100 transition-opacity p-1.5 rounded-md text-slate-300 hover:text-emerald-500 hover:bg-emerald-50 touch-manipulation"
+                          className="ml-auto opacity-40 md:opacity-0 md:group-hover/task:opacity-100 active:opacity-100 transition-opacity p-2 rounded-md text-slate-400 hover:text-emerald-500 hover:bg-emerald-50 touch-manipulation"
                           title="添加子任务"
                         >
                           <CornerDownRight className="w-4 h-4" />
@@ -317,10 +327,26 @@ export function DailyDashboard() {
                           value={subText}
                           onChange={(e) => setSubText(e.target.value)}
                           onKeyDown={(e) => handleSubKeyDown(e, task)}
+                          onBlur={() => {
+                            if (!subText.trim()) {
+                              setAddSubFor(null);
+                              setSubText("");
+                            }
+                          }}
                           disabled={acting}
                           className="h-9 text-sm border-slate-200 focus-visible:ring-emerald-500"
                           autoFocus
                         />
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          onClick={() => handleAddSub(task)}
+                          disabled={acting || !subText.trim()}
+                          className="h-8 w-8 flex-shrink-0 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50"
+                          title="确认"
+                        >
+                          <Check className="w-4 h-4" />
+                        </Button>
                       </div>
                     )}
                   </div>
