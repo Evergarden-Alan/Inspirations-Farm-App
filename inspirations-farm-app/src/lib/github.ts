@@ -146,12 +146,14 @@ export async function createInspiration(
 /** Fetch and decode a single file's raw text content from the repo */
 export async function getFileContent(filePath: string): Promise<string> {
   const { owner, repo } = getConfig();
+  console.log(`[getFileContent] Fetching ${filePath}`);
   const data = await githubFetch<{ content: string; encoding: string }>(
     `/repos/${owner}/${repo}/contents/${filePath}`
   );
   if (data.encoding !== "base64") {
     throw new Error(`Unexpected encoding: ${data.encoding}`);
   }
+  console.log(`[getFileContent] OK → ${filePath} (${data.content.length} chars b64)`);
   return Buffer.from(data.content, "base64").toString("utf-8");
 }
 
@@ -418,56 +420,69 @@ export async function getDailyJournal(date: string): Promise<DailyJournal> {
     const raw = Buffer.from(data.content, "base64").toString("utf-8");
     const { frontmatter } = parseMarkdown(raw);
 
+    const tasks = parseTasks(raw);
+    console.log(
+      `[getDailyJournal] ${date}.md exists (sha=${data.sha}, ${tasks.length} tasks)`
+    );
+
     return {
       exists: true,
       path: filePath,
       sha: data.sha,
       content: raw,
       date: String(frontmatter.date ?? date),
-      tasks: parseTasks(raw),
+      tasks,
       notes: parseDailyNotes(raw),
     };
   } catch (err: unknown) {
     if (err instanceof Error && err.message.includes("404")) {
+      console.log(`[getDailyJournal] ${date}.md not found (404)`);
       return { exists: false };
     }
+    console.error(`[getDailyJournal] ${date}.md error:`, err);
     throw err;
   }
 }
 
-/** Create a new daily journal file */
+/** Create a new daily journal file.
+ *  Pass `customContent` to use a specific template (e.g. from
+ *  Templates/Diary_Template.md); otherwise a sensible default is used. */
 export async function createDailyJournal(
-  date: string
+  date: string,
+  customContent?: string
 ): Promise<{ path: string; sha: string }> {
   const { owner, repo } = getConfig();
 
-  const template = [
-    "---",
-    "tags:",
-    "  - dairy",
-    `date: ${date}`,
-    "---",
-    "",
-    "# 近期计划",
-    "",
-    "",
-    "",
-    "---",
-    "",
-    "# 当日日程",
-    "",
-    "",
-    "---",
-    "",
-    "# 本日总结",
-    "",
-    "## 今日杂记",
-    "",
-    "",
-  ].join("\n");
+  const template =
+    customContent ??
+    [
+      "---",
+      "tags:",
+      "  - diary",
+      `date: ${date}`,
+      "---",
+      "",
+      "# 近期计划",
+      "",
+      "",
+      "",
+      "---",
+      "",
+      "# 当日日程",
+      "",
+      "",
+      "---",
+      "",
+      "# 本日总结",
+      "",
+      "## 今日杂记",
+      "",
+      "",
+    ].join("\n");
 
   const encoded = Buffer.from(template, "utf-8").toString("base64");
   const filePath = `Journal/Daily/${date}.md`;
+  console.log(`[createDailyJournal] Creating ${filePath} (customContent=${!!customContent})`);
 
   const result = await githubFetch<{ content: { sha: string } }>(
     `/repos/${owner}/${repo}/contents/${filePath}`,
@@ -481,6 +496,7 @@ export async function createDailyJournal(
     }
   );
 
+  console.log(`[createDailyJournal] OK → ${filePath} sha=${result.content.sha}`);
   return { path: filePath, sha: result.content.sha };
 }
 
@@ -494,6 +510,7 @@ export async function updateDailyJournal(
 
   const encoded = Buffer.from(content, "utf-8").toString("base64");
 
+  console.log(`[updateDailyJournal] PUT ${filePath} (sha=${sha})`);
   const result = await githubFetch<{ content: { sha: string } }>(
     `/repos/${owner}/${repo}/contents/${filePath}`,
     {
@@ -507,6 +524,7 @@ export async function updateDailyJournal(
     }
   );
 
+  console.log(`[updateDailyJournal] OK → new sha=${result.content.sha}`);
   return { sha: result.content.sha };
 }
 

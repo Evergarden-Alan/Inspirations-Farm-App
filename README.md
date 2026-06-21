@@ -30,7 +30,7 @@ A mobile-first PWA personal inspiration management system. GitHub-backed headles
 - **✅ Cascade Archive** — completing a linked task auto-archives the inspiration
 - **⏳ Relative Time** — Beijing-timezone-aware "X小时前" labels
 - **🌳 Nested Tasks** — markdown indent-parsed tree with parent-child state sync
-- **🔄 Daily Rollover** — cron job at Beijing 00:01 migrates undone tasks to tomorrow
+- **🔄 Daily Rollover** — cron job at Beijing 00:01 migrates undone tasks to tomorrow (with dry-run + time-machine modes)
 - **📋 Template Support** — `Templates/Diary_Template.md` with `{{DATE:YYYY-MM-DD}}` placeholder
 - **📱 PWA** — install to home screen, offline cache, standalone mode
 - **📂 Headless CMS** — all data in your private GitHub repo as plain Markdown
@@ -141,7 +141,34 @@ All endpoints require `x-app-pin` header (unless `APP_PIN` is unset).
 
 | Method | Auth | Description |
 |---|---|---|
-| GET | `Authorization: Bearer <CRON_SECRET>` | Migrate undone tasks from today → tomorrow |
+| GET | `Authorization: Bearer <CRON_SECRET>` or `?secret=<CRON_SECRET>` | Migrate undone tasks from today → tomorrow |
+
+**Query parameters:**
+
+| Param | Value | Description |
+|---|---|---|
+| `secret` | `<CRON_SECRET>` | Auth via URL (alternative to Bearer header) |
+| `dryRun` | `true` | Parse & build content, skip GitHub writes, return previews |
+| `targetDate` | `YYYY-MM-DD` | Override "today" for historical rollover remediation |
+
+**Auth priority**: `NODE_ENV=development` → bypass all auth. Otherwise: `?secret=` → `Authorization` header.
+
+**Examples:**
+```
+# Local safe test (dev mode — no auth needed)
+/api/cron/rollover?dryRun=true
+
+# Production dry run with URL auth
+/api/cron/rollover?secret=<SECRET>&dryRun=true
+
+# Time-machine: rollover tasks from June 30 → July 1
+/api/cron/rollover?secret=<SECRET>&dryRun=true&targetDate=2026-06-30
+
+# Real historical rollover (writes to GitHub!)
+/api/cron/rollover?secret=<SECRET>&targetDate=2026-06-15
+```
+
+**Dry-run response** includes `todayPreview`, `tomorrowPreview`, `extractedTasks`, `todayDate`, `tomorrowDate`.
 
 ## Markdown File Format
 
@@ -159,7 +186,7 @@ create: 2026-06-19 11:32:15
 ```markdown
 ---
 tags:
-  - dairy
+  - diary
 date: 2026-06-19
 ---
 # 近期计划
@@ -177,7 +204,7 @@ date: 2026-06-19
 # 本日总结
 ```
 
-**Rollover behavior**: undone `- [ ]` tasks become `- [>]` (migrated) in today's journal and are appended to tomorrow's `# 当日日程` section.
+**Rollover behavior**: undone `- [ ]` tasks become `- [>]` (migrated) in today's journal and are appended to tomorrow's `# 当日日程` section. Uses safe `setUTCDate(+1)` date math — correct across month/year boundaries. All steps logged with `[rollover]` prefix for Vercel Logs debugging.
 
 ## Deploy to Vercel
 
