@@ -30,7 +30,7 @@ A mobile-first PWA personal inspiration management system. GitHub-backed headles
 - **✅ Cascade Archive** — completing a linked task auto-archives the inspiration
 - **⏳ Relative Time** — Beijing-timezone-aware "X小时前" labels
 - **🌳 Nested Tasks** — markdown indent-parsed tree with parent-child state sync
-- **🔄 Daily Rollover** — cron job at Beijing 00:01 migrates undone tasks to tomorrow (with dry-run + time-machine modes)
+- **🔄 Daily Rollover** — cron job at Beijing 00:01 migrates undone tasks from yesterday to today (with dry-run + time-machine modes)
 - **📋 Template Support** — `Templates/Diary_Template.md` with `{{DATE:YYYY-MM-DD}}` placeholder
 - **📱 PWA** — install to home screen, offline cache, standalone mode
 - **📂 Headless CMS** — all data in your private GitHub repo as plain Markdown
@@ -141,7 +141,7 @@ All endpoints require `x-app-pin` header (unless `APP_PIN` is unset).
 
 | Method | Auth | Description |
 |---|---|---|
-| GET | `Authorization: Bearer <CRON_SECRET>` or `?secret=<CRON_SECRET>` | Migrate undone tasks from today → tomorrow |
+| GET | `Authorization: Bearer <CRON_SECRET>` or `?secret=<CRON_SECRET>` | Migrate undone tasks from yesterday → today |
 
 **Query parameters:**
 
@@ -149,7 +149,7 @@ All endpoints require `x-app-pin` header (unless `APP_PIN` is unset).
 |---|---|---|
 | `secret` | `<CRON_SECRET>` | Auth via URL (alternative to Bearer header) |
 | `dryRun` | `true` | Parse & build content, skip GitHub writes, return previews |
-| `targetDate` | `YYYY-MM-DD` | Override "today" for historical rollover remediation |
+| `targetDate` | `YYYY-MM-DD` | Time-machine: set source date explicitly (target = source + 1 day) |
 
 **Auth priority**: `NODE_ENV=development` → bypass all auth. Otherwise: `?secret=` → `Authorization` header.
 
@@ -161,14 +161,14 @@ All endpoints require `x-app-pin` header (unless `APP_PIN` is unset).
 # Production dry run with URL auth
 /api/cron/rollover?secret=<SECRET>&dryRun=true
 
-# Time-machine: rollover tasks from June 30 → July 1
+# Time-machine: rollover tasks from June 30 → July 1 (source = 06-30, target = 07-01)
 /api/cron/rollover?secret=<SECRET>&dryRun=true&targetDate=2026-06-30
 
 # Real historical rollover (writes to GitHub!)
 /api/cron/rollover?secret=<SECRET>&targetDate=2026-06-15
 ```
 
-**Dry-run response** includes `todayPreview`, `tomorrowPreview`, `extractedTasks`, `todayDate`, `tomorrowDate`.
+**Dry-run response** includes `sourcePreview`, `targetPreview`, `extractedTasks`, `sourceDate`, `targetDate`.
 
 ## Markdown File Format
 
@@ -204,7 +204,7 @@ date: 2026-06-19
 # 本日总结
 ```
 
-**Rollover behavior**: undone `- [ ]` tasks become `- [>]` (migrated) in today's journal and are appended to tomorrow's `# 当日日程` section. Uses safe `setUTCDate(+1)` date math — correct across month/year boundaries. All steps logged with `[rollover]` prefix for Vercel Logs debugging.
+**Rollover behavior**: at Beijing 00:01 each day, the cron job reads **yesterday's** journal, marks undone `- [ ]` tasks as `- [>]` (migrated), and appends fresh `- [ ]` copies into **today's** `# 当日日程` section. The `[rollover]` log prefix emits `[INFO] 正在读取的源文件日期: YYYY-MM-DD, 正在写入的目标文件日期: YYYY-MM-DD` for auditability. Time-machine mode (`targetDate=YYYY-MM-DD`) overrides the source date explicitly while keeping target = source + 1. Safe `setUTCDate(±1)` arithmetic handles month/year boundaries correctly.
 
 ## Deploy to Vercel
 

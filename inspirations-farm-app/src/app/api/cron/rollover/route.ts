@@ -17,12 +17,12 @@ const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
  *
  *   dryRun=true
  *     Parse tasks & build content, but skip all GitHub writes.
- *     Returns { status: "dry-run", todayPreview, tomorrowPreview, extractedTasks }.
+ *     Returns { status: "dry-run", sourcePreview, targetPreview, extractedTasks }.
  *
  *   targetDate=YYYY-MM-DD
- *     Override "today" for historical rollover remediation.
- *     The script will compute "tomorrow" from this date via safe Date math.
- *     Falls back to real Beijing time when omitted.
+ *     Time-machine mode: explicitly set the SOURCE date (the day whose undone
+ *     tasks to roll forward). Target = source + 1 day automatically.
+ *     Falls back to auto-cron mode (source = yesterday, target = today) when omitted.
  *
  * ## Examples
  *
@@ -107,8 +107,8 @@ export async function GET(req: NextRequest) {
         status: result.status,
         moved: result.moved,
         ok: result.ok,
-        todayDate: result.todayDate,
-        tomorrowDate: result.tomorrowDate,
+        sourceDate: result.sourceDate,
+        targetDate: result.targetDate,
       })
     );
 

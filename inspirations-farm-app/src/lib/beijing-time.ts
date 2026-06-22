@@ -91,6 +91,21 @@ export function getTomorrowForBeijingDate(dateStr: string): string {
 }
 
 /**
+ * Given a Beijing date string (YYYY-MM-DD), return the PREVIOUS Beijing
+ * date string (YYYY-MM-DD) using safe `setUTCDate(-1)` arithmetic.
+ *
+ * This correctly handles month- and year-boundary rollovers:
+ *   2026-07-01 → 2026-06-30
+ *   2027-01-01 → 2026-12-31
+ */
+export function getYesterdayForBeijingDate(dateStr: string): string {
+  const utcMs = beijingMidnightToUtc(dateStr);
+  const d = new Date(utcMs);
+  d.setUTCDate(d.getUTCDate() - 1); // safe across month/year
+  return dateFormatter.format(d);
+}
+
+/**
  * Format a Date as YYYY-MM-DD in the Asia/Shanghai timezone.
  */
 export function formatBeijingDate(d: Date): string {

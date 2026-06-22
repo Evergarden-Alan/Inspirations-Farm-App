@@ -1,16 +1,22 @@
 /**
- * Daily rollover: move uncompleted tasks from today's journal to tomorrow's.
+ * Daily rollover: move uncompleted tasks from yesterday's journal to today's.
  * Uses Asia/Shanghai for all date calculations.
  *
- * Supports two optional modes via `executeRollover(options)`:
- *   - targetDate  — override "today" for historical remediation (YYYY-MM-DD)
+ * Auto-cron mode (no targetDate):
+ *   source = yesterday, target = today (real Beijing time)
+ *
+ * Time-machine mode (targetDate=YYYY-MM-DD):
+ *   source = targetDate, target = source + 1 day
+ *
+ * Optional flags via `executeRollover(options)`:
+ *   - targetDate  — explicitly set the source date for historical remediation
  *   - dryRun      — build all content but skip GitHub writes; return previews
  */
 
 import {
   getBeijingDateString,
-  getTomorrowBeijingDate,
   getTomorrowForBeijingDate,
+  getYesterdayForBeijingDate,
 } from "./beijing-time";
 import {
   getDailyJournal,
@@ -24,23 +30,28 @@ import type { DailyTask } from "./github";
 
 export interface RolloverResult {
   ok: boolean;
-  status: "no_today" | "all_done" | "ok" | "dry-run" | "error";
+  status: "no_source" | "all_done" | "ok" | "dry-run" | "error";
   moved?: number;
   error?: string;
-  /** The effective "today" date used for this run (YYYY-MM-DD, Beijing) */
-  todayDate: string;
-  /** The effective "tomorrow" date used for this run (YYYY-MM-DD, Beijing) */
-  tomorrowDate: string;
-  /** dryRun only — today's content with [>] migration markers */
-  todayPreview?: string;
-  /** dryRun only — tomorrow's content with appended tasks */
-  tomorrowPreview?: string;
+  /** The source date — the day whose undone tasks we're rolling forward (YYYY-MM-DD, Beijing) */
+  sourceDate: string;
+  /** The target date — the day receiving the rolled-over tasks (YYYY-MM-DD, Beijing) */
+  targetDate: string;
+  /** dryRun only — source file content with [>] migration markers */
+  sourcePreview?: string;
+  /** dryRun only — target file content with appended tasks */
+  targetPreview?: string;
   /** dryRun only — text of each extracted undone task */
   extractedTasks?: string[];
 }
 
 export interface RolloverOptions {
-  /** Override "today" as YYYY-MM-DD (Beijing time). Falls back to real now. */
+  /**
+   * Time-machine mode: explicitly pick the source date (the day whose
+   * undone tasks to roll forward). The target will be source + 1 day.
+   * Format: YYYY-MM-DD (Beijing time).
+   * Falls back to auto mode (source = yesterday, target = today) when omitted.
+   */
   targetDate?: string;
   /** If true, skip all GitHub writes and return content previews. */
   dryRun?: boolean;
@@ -61,35 +72,38 @@ export async function executeRollover(
   }
 
   try {
-    // ── Determine effective dates ────────────────────────
-    const today = options?.targetDate || getBeijingDateString();
-    const tomorrow = getTomorrowForBeijingDate(today);
+    // ── Determine source and target dates ─────────────────
+    //   Auto-cron mode (no targetDate):  source = yesterday,  target = today
+    //   Time-machine mode (targetDate):  source = targetDate, target = source + 1
+    const realToday = getBeijingDateString();
+    const source = options?.targetDate || getYesterdayForBeijingDate(realToday);
+    const target = getTomorrowForBeijingDate(source);
     log(
-      `Effective dates: today=${today} tomorrow=${tomorrow}` +
+      `[INFO] 正在读取的源文件日期: ${source}, 正在写入的目标文件日期: ${target}` +
         (options?.targetDate
-          ? ` (targetDate override)`
-          : " (real Beijing time)")
+          ? ` (time-machine mode, targetDate override)`
+          : ` (auto-cron mode, real Beijing today=${realToday})`)
     );
 
-    // ── 1) Fetch today's journal ──────────────────────────
-    log(`Step 1: Fetching today's journal (${today})...`);
-    const todayJournal = await getDailyJournal(today);
-    if (!todayJournal.exists) {
-      log(`Today's journal does not exist → no_today, done.`);
+    // ── 1) Fetch source journal ──────────────────────────
+    log(`Step 1: Fetching source journal (${source})...`);
+    const sourceJournal = await getDailyJournal(source);
+    if (!sourceJournal.exists) {
+      log(`Source journal (${source}) does not exist → no_source, done.`);
       return {
         ok: true,
-        status: "no_today",
-        todayDate: today,
-        tomorrowDate: tomorrow,
+        status: "no_source",
+        sourceDate: source,
+        targetDate: target,
       };
     }
     log(
-      `Today's journal found: path=${todayJournal.path} sha=${todayJournal.sha}`
+      `Source journal found: path=${sourceJournal.path} sha=${sourceJournal.sha}`
     );
 
     // ── 2) Parse and filter undone tasks ──────────────────
     log(`Step 2: Parsing tasks...`);
-    const tasks = parseTasks(todayJournal.content!);
+    const tasks = parseTasks(sourceJournal.content!);
     const undone = tasks.filter((t: DailyTask) => !t.done);
     log(
       `Found ${tasks.length} total tasks, ${undone.length} undone (${tasks.length - undone.length} done)`
@@ -100,21 +114,21 @@ export async function executeRollover(
       return {
         ok: true,
         status: "all_done",
-        todayDate: today,
-        tomorrowDate: tomorrow,
+        sourceDate: source,
+        targetDate: target,
       };
     }
 
-    // ── 3) Mark undone tasks as migrated in today's content ─
+    // ── 3) Mark undone tasks as migrated in source content ─
     log(
       `Step 3: Marking ${undone.length} undone tasks as migrated ([ ] → [>])...`
     );
-    let updatedToday = todayJournal.content!;
+    let updatedSource = sourceJournal.content!;
     for (const task of undone) {
       const oldLine = `${task.indent}- [ ] ${task.text}`;
       const newLine = `${task.indent}- [>] ${task.text}`;
-      if (updatedToday.includes(oldLine)) {
-        updatedToday = updatedToday.replace(oldLine, newLine);
+      if (updatedSource.includes(oldLine)) {
+        updatedSource = updatedSource.replace(oldLine, newLine);
       } else {
         logErr(
           `WARNING: Could not find task line in content: "${oldLine.slice(0, 80)}..."`
@@ -122,45 +136,45 @@ export async function executeRollover(
       }
     }
 
-    // ── 4) Build task lines for tomorrow ──────────────────
+    // ── 4) Build task lines for target ────────────────────
     const taskLines = undone.map(
       (t: DailyTask) => `${t.indent}- [ ] ${t.text}`
     );
-    log(`Step 4: Built ${taskLines.length} task lines for tomorrow`);
+    log(`Step 4: Built ${taskLines.length} task lines for target (${target})`);
 
-    // ── 5) Commit today's changes (or dry-run log) ────────
-    let todaySha = todayJournal.sha!;
+    // ── 5) Commit source changes (or dry-run log) ─────────
+    let sourceSha = sourceJournal.sha!;
     if (dryRun) {
-      log("━━━ DRY RUN: would update today ━━━");
+      log("━━━ DRY RUN: would update source ━━━");
       console.log(
-        `\n[DRY RUN] 准备覆盖的今日日记 (${today}):\n${"-".repeat(60)}\n${updatedToday}\n${"-".repeat(60)}\n`
+        `\n[DRY RUN] 准备覆盖的源日记 (${source}):\n${"-".repeat(60)}\n${updatedSource}\n${"-".repeat(60)}\n`
       );
     } else {
-      log(`Step 5: Committing today's changes (marking tasks as migrated)...`);
-      const todayResult = await updateDailyJournal(
-        todayJournal.path!,
-        todaySha,
-        updatedToday
+      log(`Step 5: Committing source changes (marking tasks as migrated)...`);
+      const sourceResult = await updateDailyJournal(
+        sourceJournal.path!,
+        sourceSha,
+        updatedSource
       );
-      todaySha = todayResult.sha;
-      log(`Today updated: new sha=${todaySha}`);
+      sourceSha = sourceResult.sha;
+      log(`Source updated: new sha=${sourceSha}`);
     }
 
-    // ── 6) Get or create tomorrow's journal ───────────────
-    log(`Step 6: Preparing tomorrow's journal (${tomorrow})...`);
-    const tomorrowJournal = await getDailyJournal(tomorrow);
+    // ── 6) Get or create target journal ───────────────────
+    log(`Step 6: Preparing target journal (${target})...`);
+    const targetJournal = await getDailyJournal(target);
 
-    let tomorrowContent: string;
-    let tomorrowPath: string;
+    let targetContent: string;
+    let targetPath: string;
 
-    if (!tomorrowJournal.exists) {
-      log(`Tomorrow's journal does not exist — creating from template...`);
+    if (!targetJournal.exists) {
+      log(`Target journal (${target}) does not exist — creating from template...`);
 
       // Try to read the template file
       let template: string;
       try {
         template = await getFileContent("Templates/Diary_Template.md");
-        template = template.replace(/\{\{DATE:YYYY-MM-DD\}\}/g, tomorrow);
+        template = template.replace(/\{\{DATE:YYYY-MM-DD\}\}/g, target);
         log(
           `Loaded template from Templates/Diary_Template.md (${template.length} chars)`
         );
@@ -173,7 +187,7 @@ export async function executeRollover(
           "---",
           "tags:",
           "  - diary",
-          `date: ${tomorrow}`,
+          `date: ${target}`,
           "---",
           "",
           "# 近期计划",
@@ -196,22 +210,22 @@ export async function executeRollover(
       }
 
       // Insert undone tasks into the template
-      tomorrowContent = template;
+      targetContent = template;
       for (const line of taskLines) {
-        tomorrowContent = insertIntoDailySection(tomorrowContent, line);
+        targetContent = insertIntoDailySection(targetContent, line);
       }
 
       if (dryRun) {
-        log("━━━ DRY RUN: would create tomorrow ━━━");
+        log("━━━ DRY RUN: would create target ━━━");
         console.log(
-          `\n[DRY RUN] 准备创建的明日日记 (${tomorrow}):\n${"-".repeat(60)}\n${tomorrowContent}\n${"-".repeat(60)}\n`
+          `\n[DRY RUN] 准备创建的目标日记 (${target}):\n${"-".repeat(60)}\n${targetContent}\n${"-".repeat(60)}\n`
         );
       } else {
         // Single PUT with fully-prepared content (no double-commit)
-        const created = await createDailyJournal(tomorrow, tomorrowContent);
-        tomorrowPath = created.path;
+        const created = await createDailyJournal(target, targetContent);
+        targetPath = created.path;
         log(
-          `Tomorrow's journal created with ${undone.length} tasks: path=${tomorrowPath}`
+          `Target journal created with ${undone.length} tasks: path=${targetPath}`
         );
       }
 
@@ -220,51 +234,51 @@ export async function executeRollover(
         ok: true,
         status: dryRun ? "dry-run" : "ok",
         moved: undone.length,
-        todayDate: today,
-        tomorrowDate: tomorrow,
+        sourceDate: source,
+        targetDate: target,
         ...(dryRun && {
-          todayPreview: updatedToday,
-          tomorrowPreview: tomorrowContent,
+          sourcePreview: updatedSource,
+          targetPreview: targetContent,
           extractedTasks,
         }),
       };
     }
 
-    // Tomorrow exists — append tasks to it
+    // Target exists — append tasks to it
     log(
-      `Tomorrow's journal already exists: path=${tomorrowJournal.path} sha=${tomorrowJournal.sha}`
+      `Target journal already exists: path=${targetJournal.path} sha=${targetJournal.sha}`
     );
-    tomorrowContent = tomorrowJournal.content!;
-    tomorrowPath = tomorrowJournal.path!;
-    const tomorrowSha = tomorrowJournal.sha!;
+    targetContent = targetJournal.content!;
+    targetPath = targetJournal.path!;
+    const targetSha = targetJournal.sha!;
 
-    // ── 7) Append undone tasks into tomorrow's # 当日日程 section
+    // ── 7) Append undone tasks into target's # 当日日程 section
     log(
-      `Step 7: Inserting ${taskLines.length} tasks into tomorrow's journal...`
+      `Step 7: Inserting ${taskLines.length} tasks into target journal (${target})...`
     );
     for (const line of taskLines) {
-      tomorrowContent = insertIntoDailySection(tomorrowContent, line);
+      targetContent = insertIntoDailySection(targetContent, line);
     }
 
-    // ── 8) Commit tomorrow's changes (or dry-run log) ─────
+    // ── 8) Commit target changes (or dry-run log) ─────────
     if (dryRun) {
-      log("━━━ DRY RUN: would update tomorrow ━━━");
+      log("━━━ DRY RUN: would update target ━━━");
       console.log(
-        `\n[DRY RUN] 准备更新的明日日记 (${tomorrow}):\n${"-".repeat(60)}\n${tomorrowContent}\n${"-".repeat(60)}\n`
+        `\n[DRY RUN] 准备更新的目标日记 (${target}):\n${"-".repeat(60)}\n${targetContent}\n${"-".repeat(60)}\n`
       );
     } else {
-      log(`Step 8: Committing tomorrow's updated journal...`);
-      const tmrwResult = await updateDailyJournal(
-        tomorrowPath,
-        tomorrowSha,
-        tomorrowContent
+      log(`Step 8: Committing target journal update...`);
+      const targetResult = await updateDailyJournal(
+        targetPath,
+        targetSha,
+        targetContent
       );
-      log(`Tomorrow updated: new sha=${tmrwResult.sha}`);
+      log(`Target updated: new sha=${targetResult.sha}`);
     }
 
     const extractedTasks = undone.map((t: DailyTask) => t.text);
     log(
-      `Rollover complete: moved=${undone.length} tasks to ${tomorrow}` +
+      `Rollover complete: moved=${undone.length} tasks from ${source} to ${target}` +
         (dryRun ? " (DRY RUN)" : "")
     );
 
@@ -272,11 +286,11 @@ export async function executeRollover(
       ok: true,
       status: dryRun ? "dry-run" : "ok",
       moved: undone.length,
-      todayDate: today,
-      tomorrowDate: tomorrow,
+      sourceDate: source,
+      targetDate: target,
       ...(dryRun && {
-        todayPreview: updatedToday,
-        tomorrowPreview: tomorrowContent,
+        sourcePreview: updatedSource,
+        targetPreview: targetContent,
         extractedTasks,
       }),
     };
@@ -286,12 +300,14 @@ export async function executeRollover(
     if (err instanceof Error && err.stack) {
       console.error(ROLLOVER_LOG_PREFIX, err.stack);
     }
+    const realToday = getBeijingDateString();
+    const source = options?.targetDate || getYesterdayForBeijingDate(realToday);
     return {
       ok: false,
       status: "error",
       error: message,
-      todayDate: options?.targetDate || getBeijingDateString(),
-      tomorrowDate: getTomorrowBeijingDate(),
+      sourceDate: source,
+      targetDate: getTomorrowForBeijingDate(source),
     };
   }
 }
