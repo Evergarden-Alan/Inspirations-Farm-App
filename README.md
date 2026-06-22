@@ -218,6 +218,8 @@ date: 2026-06-19
 
 **Rollover behavior**: at Beijing 00:01 each day, the cron job reads **yesterday's** journal, marks undone `- [ ]` tasks as `- [>]` (migrated), and appends fresh `- [ ]` copies into **today's** `# 当日日程` section. The `[rollover]` log prefix emits `[INFO] 正在读取的源文件日期: YYYY-MM-DD, 正在写入的目标文件日期: YYYY-MM-DD` for auditability. Time-machine mode (`targetDate=YYYY-MM-DD`) overrides the source date explicitly while keeping target = source + 1. Safe `setUTCDate(±1)` arithmetic handles month/year boundaries correctly.
 
+**Real-time UI updates**: all mutations use optimistic updates — the UI applies changes immediately from the server response (or locally-computed content), avoiding the GitHub API's eventual-consistency delay. Patch appends, task toggles, task/subtask additions, and daily notes all update instantly without a re-fetch.
+
 ## Deploy to Vercel
 
 1. Push this repo to GitHub

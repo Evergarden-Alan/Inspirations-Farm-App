@@ -399,7 +399,7 @@ export async function archiveInspiration(filePath: string): Promise<void> {
 export async function appendInspirationPatch(
   filePath: string,
   patchContent: string
-): Promise<{ sha: string }> {
+): Promise<{ sha: string; patch: InspirationPatch }> {
   const { owner, repo } = getConfig();
 
   // Fetch current content + sha (same pattern as archiveInspiration)
@@ -469,7 +469,10 @@ export async function appendInspirationPatch(
     }
   );
 
-  return { sha: result.content.sha };
+  return {
+    sha: result.content.sha,
+    patch: { time: timeStr, content: patchContent },
+  };
 }
 
 // ── Daily Journal ─────────────────────────────────────

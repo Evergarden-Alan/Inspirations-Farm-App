@@ -81,6 +81,7 @@ export async function DELETE(req: NextRequest) {
     }
 
     await deleteFile(path, sha);
+    revalidatePath("/");
     return Response.json({ ok: true });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Unknown error";
@@ -118,6 +119,7 @@ export async function PUT(req: NextRequest) {
     }
 
     const result = await updateFileStatus(path, sha, status);
+    revalidatePath("/");
     return Response.json({ ok: true, ...result });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Unknown error";
@@ -152,7 +154,7 @@ export async function PATCH(req: NextRequest) {
     const result = await appendInspirationPatch(path, content.trim());
 
     revalidatePath("/");
-    return Response.json({ ok: true, sha: result.sha });
+    return Response.json({ ok: true, sha: result.sha, patch: result.patch });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Unknown error";
     return Response.json({ ok: false, error: message }, { status: 500 });

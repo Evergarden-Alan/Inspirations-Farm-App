@@ -38,6 +38,13 @@ export function JottingsCard() {
 
   useEffect(() => {
     fetchNotes();
+
+    // Refresh when another component modifies the daily journal
+    function handleDailyUpdate() {
+      fetchNotes();
+    }
+    window.addEventListener("daily:updated", handleDailyUpdate);
+    return () => window.removeEventListener("daily:updated", handleDailyUpdate);
   }, [fetchNotes]);
 
   // ── Add note ────────────────────────────────────────
@@ -55,7 +62,8 @@ export function JottingsCard() {
       const data = await res.json();
       if (data.ok) {
         setNoteText("");
-        await fetchNotes();
+        // Optimistic update: use the server-returned timestamp
+        setNotes((prev) => [...prev, { time: data.time, text }]);
       } else {
         setError(data.error ?? "Failed to add note");
       }

@@ -218,7 +218,22 @@ export function InspirationFeed() {
       if (data.ok) {
         setAppendText("");
         setAppendingId(null);
-        await fetchItems();
+
+        // Optimistic update: apply the server-returned patch immediately
+        // (avoids GitHub eventual-consistency lag from a re-fetch)
+        if (data.patch) {
+          setItems((prev) =>
+            prev.map((i) =>
+              i.path === item.path
+                ? {
+                    ...i,
+                    patches: [...(i.patches || []), data.patch],
+                    sha: data.sha,
+                  }
+                : i
+            )
+          );
+        }
         router.refresh();
       } else {
         setError(data.error ?? "Failed to append patch");

@@ -7,7 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { apiFetch, AuthError } from "@/lib/api";
 import { getBeijingDateString } from "@/lib/beijing-time";
-import { insertSubtaskLine, insertIntoDailySection } from "@/lib/github";
+import { insertSubtaskLine, insertIntoDailySection, parseTasks } from "@/lib/github";
 import { cascadeToggle, applyTaskChanges } from "@/lib/cascade";
 import type { DailyTask } from "@/lib/github";
 
@@ -161,7 +161,14 @@ export function DailyDashboard() {
       const data = await res.json();
       if (data.ok) {
         setNewTask("");
-        await fetchJournal();
+        // Optimistic update: apply locally-computed content + re-parsed tasks
+        const newTasks = parseTasks(updatedContent);
+        setState({
+          ...state,
+          content: updatedContent,
+          sha: data.sha,
+          tasks: newTasks,
+        });
       } else {
         setError(data.error ?? "Failed to add task");
       }
@@ -190,7 +197,14 @@ export function DailyDashboard() {
       if (data.ok) {
         setAddSubFor(null);
         setSubText("");
-        await fetchJournal();
+        // Optimistic update: apply locally-computed content + re-parsed tasks
+        const newTasks = parseTasks(updatedContent);
+        setState({
+          ...state,
+          content: updatedContent,
+          sha: data.sha,
+          tasks: newTasks,
+        });
       } else {
         setError(data.error ?? "Failed to add subtask");
       }
