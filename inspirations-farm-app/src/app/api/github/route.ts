@@ -6,6 +6,7 @@ import {
   deleteFile,
   updateFileStatus,
   archiveInspiration,
+  appendInspirationPatch,
 } from "@/lib/github";
 import { validatePin } from "@/lib/auth";
 import { getBeijingTimestamp } from "@/lib/beijing-time";
@@ -118,6 +119,40 @@ export async function PUT(req: NextRequest) {
 
     const result = await updateFileStatus(path, sha, status);
     return Response.json({ ok: true, ...result });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Unknown error";
+    return Response.json({ ok: false, error: message }, { status: 500 });
+  }
+}
+
+/**
+ * PATCH /api/github
+ * Appends a timestamped patch to an inspiration file's ## 追加记录 section.
+ * Body: { path: string, content: string }
+ */
+export async function PATCH(req: NextRequest) {
+  if (!validatePin(req)) return deny();
+  try {
+    const body = await req.json();
+    const { path, content } = body;
+
+    if (!path || typeof path !== "string") {
+      return Response.json(
+        { ok: false, error: "Missing or invalid 'path' field" },
+        { status: 400 }
+      );
+    }
+    if (!content || typeof content !== "string" || !content.trim()) {
+      return Response.json(
+        { ok: false, error: "Missing or invalid 'content' field" },
+        { status: 400 }
+      );
+    }
+
+    const result = await appendInspirationPatch(path, content.trim());
+
+    revalidatePath("/");
+    return Response.json({ ok: true, sha: result.sha });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Unknown error";
     return Response.json({ ok: false, error: message }, { status: 500 });

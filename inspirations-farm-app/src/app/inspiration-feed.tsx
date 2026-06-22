@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Check, Trash2, Send } from "lucide-react";
+import { Check, Trash2, Send, MessageSquarePlus } from "lucide-react";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -22,6 +22,7 @@ interface Inspiration {
   priority: string;
   tags: string[];
   content: string;
+  patches?: { time: string; content: string }[];
 }
 
 export function InspirationFeed() {
@@ -167,6 +168,10 @@ export function InspirationFeed() {
   // ── Push to daily ────────────────────────────────────
   const [pushingId, setPushingId] = useState<string | null>(null);
 
+  // ── Append patch ─────────────────────────────────────
+  const [appendingId, setAppendingId] = useState<string | null>(null);
+  const [appendText, setAppendText] = useState("");
+
   async function handlePushToDaily(item: Inspiration) {
     setPushingId(item.id);
     setError(null);
@@ -191,6 +196,43 @@ export function InspirationFeed() {
     } finally {
       setPushingId(null);
     }
+  }
+
+  // ── Append patch ─────────────────────────────────────
+  async function handleAppend(item: Inspiration) {
+    const text = appendText.trim();
+    if (!text) return;
+
+    setActionLoading(item.sha);
+    setError(null);
+
+    try {
+      const res = await apiFetch("/api/github", {
+        method: "PATCH",
+        body: JSON.stringify({
+          path: item.path,
+          content: text,
+        }),
+      });
+      const data = await res.json();
+      if (data.ok) {
+        setAppendText("");
+        setAppendingId(null);
+        await fetchItems();
+        router.refresh();
+      } else {
+        setError(data.error ?? "Failed to append patch");
+      }
+    } catch (err) {
+      if (!(err instanceof AuthError)) setError("Network error");
+    } finally {
+      setActionLoading(null);
+    }
+  }
+
+  function handleAppendToggle(item: Inspiration | null) {
+    setAppendingId(item?.id ?? null);
+    setAppendText("");
   }
 
   // ── Filtering ───────────────────────────────────────
@@ -379,8 +421,13 @@ export function InspirationFeed() {
               onComplete={handleComplete}
               onDelete={handleDelete}
               onPush={handlePushToDaily}
+              onAppend={handleAppend}
+              onAppendToggle={handleAppendToggle}
+              onAppendTextChange={setAppendText}
               disabled={actionLoading === item.sha}
               pushing={pushingId === item.id}
+              appending={appendingId === item.id}
+              appendText={appendText}
             />
           ))
         )}
@@ -395,15 +442,25 @@ function InspirationCard({
   onComplete,
   onDelete,
   onPush,
+  onAppend,
+  onAppendToggle,
+  onAppendTextChange,
   disabled,
   pushing,
+  appending,
+  appendText,
 }: {
   item: Inspiration;
   onComplete: (item: Inspiration) => void;
   onDelete: (item: Inspiration) => void;
   onPush: (item: Inspiration) => void;
+  onAppend: (item: Inspiration) => void;
+  onAppendToggle: (item: Inspiration | null) => void;
+  onAppendTextChange: (text: string) => void;
   disabled: boolean;
   pushing: boolean;
+  appending: boolean;
+  appendText: string;
 }) {
   const survival = getSurvivalLabel(item.createdAt);
 
@@ -415,6 +472,13 @@ function InspirationCard({
     p3: "border-l-slate-300",
   };
   const borderColor = priorityBorder[item.priority] || priorityBorder.p2;
+
+  function handleAppendKeyDown(e: React.KeyboardEvent) {
+    if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      onAppend(item);
+    }
+  }
 
   return (
     <Card
@@ -452,6 +516,58 @@ function InspirationCard({
           </div>
         )}
 
+        {/* Patches timeline */}
+        {item.patches && item.patches.length > 0 && (
+          <div className="space-y-2">
+            <div className="border-t border-slate-100 my-2" />
+            {item.patches.map((patch, idx) => (
+              <div
+                key={idx}
+                className="pl-2.5 border-l-2 border-slate-200 space-y-0.5"
+              >
+                <span className="text-[11px] text-slate-400 font-mono">
+                  {patch.time}
+                </span>
+                <p className="text-xs text-slate-500 leading-relaxed">
+                  {patch.content}
+                </p>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Append patch textarea */}
+        {appending && (
+          <div className="space-y-2 pt-0.5">
+            <textarea
+              autoFocus
+              placeholder="补充一下这个想法..."
+              value={appendText}
+              onChange={(e) => onAppendTextChange(e.target.value)}
+              onKeyDown={handleAppendKeyDown}
+              disabled={disabled}
+              rows={2}
+              className="w-full text-sm rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 resize-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 placeholder:text-slate-400 disabled:opacity-50"
+            />
+            <div className="flex items-center justify-end gap-2">
+              <button
+                onClick={() => onAppendToggle(null)}
+                disabled={disabled}
+                className="px-3 py-1.5 text-xs text-slate-500 hover:text-slate-700 rounded-md hover:bg-slate-100 transition-colors min-w-[44px] min-h-[44px] touch-manipulation"
+              >
+                取消
+              </button>
+              <button
+                onClick={() => onAppend(item)}
+                disabled={disabled || !appendText.trim()}
+                className="px-3 py-1.5 text-xs text-white bg-emerald-600 hover:bg-emerald-700 rounded-md transition-colors disabled:opacity-40 min-w-[44px] min-h-[44px] touch-manipulation"
+              >
+                {disabled ? "追加中..." : "发送"}
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Footer: survival time + actions */}
         <div className="flex items-center justify-between pt-2 border-t border-slate-100">
           <span className="text-xs text-slate-400">{survival}</span>
@@ -465,6 +581,18 @@ function InspirationCard({
               title="推送到今日"
             >
               <Send className={`w-4 h-4 ${pushing ? "animate-pulse" : ""}`} />
+            </button>
+
+            {/* Append patch */}
+            <button
+              onClick={() =>
+                appending ? onAppendToggle(null) : onAppendToggle(item)
+              }
+              disabled={disabled}
+              className="flex items-center justify-center min-w-[44px] min-h-[44px] rounded-lg text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 active:bg-emerald-100 transition-all disabled:opacity-30 md:opacity-0 md:group-hover:opacity-100 touch-manipulation"
+              title="追加记录"
+            >
+              <MessageSquarePlus className="w-4 h-4" />
             </button>
 
             {/* Complete */}

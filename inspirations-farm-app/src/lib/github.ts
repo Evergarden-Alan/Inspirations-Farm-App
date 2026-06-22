@@ -82,7 +82,13 @@ export interface InspirationItem {
   status: string; // "active" | "completed" from frontmatter
   priority: string; // p0 | p1 | p2 | p3, default "p2"
   tags: string[]; // tag list, default []
-  content: string; // body after # heading
+  content: string; // body above ## 追加记录 (excluding the first # heading)
+  patches?: InspirationPatch[]; // parsed from ## 追加记录 section
+}
+
+export interface InspirationPatch {
+  time: string;   // "YYYY-MM-DD HH:mm" — full form after normalization
+  content: string;
 }
 
 // ── API methods ────────────────────────────────────────
@@ -181,6 +187,64 @@ export function stripHeading(body: string): string {
   return body.replace(/^#\s+.*\n?/m, "").trim();
 }
 
+// ── Patch (追加记录) parsing ────────────────────────────
+
+/**
+ * Split an inspiration body at ## 追加记录.
+ * Returns the content above the section and parsed patches from below it.
+ * For HH:mm-only timestamps, the createdAt date is prepended.
+ */
+export function parseInspirationPatches(
+  body: string,
+  createdAt: string
+): { content: string; patches: InspirationPatch[] } {
+  const lines = body.split("\n");
+
+  // Find ## 追加记录 as a whole line
+  let headingLine = -1;
+  for (let i = 0; i < lines.length; i++) {
+    if (/^##\s+追加记录\s*$/.test(lines[i])) {
+      headingLine = i;
+      break;
+    }
+  }
+
+  if (headingLine === -1) {
+    return { content: body, patches: [] };
+  }
+
+  // Content is everything above the heading
+  const content = lines.slice(0, headingLine).join("\n").trim();
+
+  // Find section end — next heading (# or ##) or EOF
+  let sectionEnd = lines.length;
+  for (let i = headingLine + 1; i < lines.length; i++) {
+    const t = lines[i].trim();
+    if (/^#+\s/.test(t)) {
+      sectionEnd = i;
+      break;
+    }
+  }
+
+  // Parse patch lines: - **[YYYY-MM-DD HH:mm]** text  or  - **[HH:mm]** text
+  const createdDate = createdAt.slice(0, 10); // "YYYY-MM-DD"
+  const patchRe = /^-\s+\*\*(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}|\d{2}:\d{2})\*\*\s+(.*)$/;
+  const patches: InspirationPatch[] = [];
+
+  for (let i = headingLine + 1; i < sectionEnd; i++) {
+    const match = lines[i].match(patchRe);
+    if (match) {
+      const rawTime = match[1];
+      const text = match[2].trim();
+      const fullTime =
+        rawTime.length === 5 ? `${createdDate} ${rawTime}` : rawTime;
+      patches.push({ time: fullTime, content: text });
+    }
+  }
+
+  return { content, patches };
+}
+
 // ── Combined listing ───────────────────────────────────
 
 /** List inspirations with full content and parsed metadata */
@@ -195,11 +259,14 @@ export async function listInspirationsWithContent(): Promise<
         const raw = await getFileContent(f.path);
         const { frontmatter, body } = parseMarkdown(raw);
         const title = extractTitle(body);
-        const content = stripHeading(body);
 
         // Extract create date from raw string to bypass gray-matter date coercion
         const createMatch = raw.match(/^create:\s*(.+)$/m);
         const createdAt = createMatch ? createMatch[1].trim() : String(frontmatter.create ?? "");
+
+        // Parse content and patches, splitting at ## 追加记录
+        const stripped = stripHeading(body);
+        const { content, patches } = parseInspirationPatches(stripped, createdAt);
 
         const tagsRaw = frontmatter.tags;
         const tags: string[] = Array.isArray(tagsRaw)
@@ -219,6 +286,7 @@ export async function listInspirationsWithContent(): Promise<
           priority: String(frontmatter.priority || "p2"),
           tags,
           content,
+          patches: patches.length > 0 ? patches : undefined,
         };
       })
     )
@@ -319,6 +387,89 @@ export async function archiveInspiration(filePath: string): Promise<void> {
     }),
     headers: { "Content-Type": "application/json" },
   });
+}
+
+// ── Patch append (追加记录) ─────────────────────────────
+
+/**
+ * Append a timestamped patch line to an inspiration file's ## 追加记录 section.
+ * If the section doesn't exist, creates it at the end of the file.
+ * Fetches the current SHA internally — the caller doesn't need to provide it.
+ */
+export async function appendInspirationPatch(
+  filePath: string,
+  patchContent: string
+): Promise<{ sha: string }> {
+  const { owner, repo } = getConfig();
+
+  // Fetch current content + sha (same pattern as archiveInspiration)
+  const data = await githubFetch<{
+    sha: string;
+    content: string;
+    encoding: string;
+  }>(`/repos/${owner}/${repo}/contents/${filePath}`);
+
+  if (data.encoding !== "base64") {
+    throw new Error(`Unexpected encoding: ${data.encoding}`);
+  }
+  const raw = Buffer.from(data.content, "base64").toString("utf-8");
+
+  const sectionHeading = "## 追加记录";
+  const timeStr = getBeijingDateTimeString().slice(0, 16); // "YYYY-MM-DD HH:mm"
+  const patchLine = `- **${timeStr}** ${patchContent}`;
+
+  let updated: string;
+  const lines = raw.split("\n");
+
+  // Find ## 追加记录 section
+  let headingLine = -1;
+  for (let i = 0; i < lines.length; i++) {
+    if (/^##\s+追加记录\s*$/.test(lines[i])) {
+      headingLine = i;
+      break;
+    }
+  }
+
+  if (headingLine !== -1) {
+    // Section exists — find its end, insert before it
+    let sectionEnd = lines.length;
+    for (let i = headingLine + 1; i < lines.length; i++) {
+      const t = lines[i].trim();
+      if (/^#+\s/.test(t)) {
+        sectionEnd = i;
+        break;
+      }
+    }
+
+    // Insert before trailing blank lines
+    let insertAt = sectionEnd;
+    while (insertAt > headingLine + 1 && lines[insertAt - 1].trim() === "") {
+      insertAt--;
+    }
+
+    lines.splice(insertAt, 0, patchLine);
+    updated = lines.join("\n");
+  } else {
+    // No section — append at end
+    updated = raw.trimEnd() + `\n\n${sectionHeading}\n\n${patchLine}\n`;
+  }
+
+  const encoded = Buffer.from(updated, "utf-8").toString("base64");
+
+  const result = await githubFetch<{ content: { sha: string } }>(
+    `/repos/${owner}/${repo}/contents/${filePath}`,
+    {
+      method: "PUT",
+      body: JSON.stringify({
+        message: `Append inspiration patch`,
+        content: encoded,
+        sha: data.sha,
+      }),
+      headers: { "Content-Type": "application/json" },
+    }
+  );
+
+  return { sha: result.content.sha };
 }
 
 // ── Daily Journal ─────────────────────────────────────

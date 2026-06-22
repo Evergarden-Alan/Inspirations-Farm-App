@@ -31,6 +31,7 @@ A mobile-first PWA personal inspiration management system. GitHub-backed headles
 - **⏳ Relative Time** — Beijing-timezone-aware "X小时前" labels
 - **🌳 Nested Tasks** — markdown indent-parsed tree with parent-child state sync
 - **🔄 Daily Rollover** — cron job at Beijing 00:01 migrates undone tasks from yesterday to today (with dry-run + time-machine modes)
+- **📝 Inspiration Patches** — append timestamped follow-up notes to inspirations via `## 追加记录` markdown section
 - **📋 Template Support** — `Templates/Diary_Template.md` with `{{DATE:YYYY-MM-DD}}` placeholder
 - **📱 PWA** — install to home screen, offline cache, standalone mode
 - **📂 Headless CMS** — all data in your private GitHub repo as plain Markdown
@@ -123,8 +124,9 @@ All endpoints require `x-app-pin` header (unless `APP_PIN` is unset).
 
 | Method | Body | Description |
 |---|---|---|
-| GET | — | List active inspirations (with `id`, `title`, `content`) |
-| POST | `{ content }` | Create inspiration (`Inspirations/YYYY-MM-DD-HHmmss.md`) |
+| GET | — | List active inspirations (with `id`, `title`, `content`, `patches`) |
+| POST | `{ content, priority?, tags? }` | Create inspiration (`Inspirations/YYYY-MM-DD-HHmmss.md`) |
+| PATCH | `{ path, content }` | Append timestamped patch to `## 追加记录` section |
 | PUT | `{ path, sha, status }` or `{ ideaId, status }` | Update status or archive by ideaId |
 | DELETE | `{ path, sha }` | Delete inspiration |
 
@@ -173,13 +175,23 @@ All endpoints require `x-app-pin` header (unless `APP_PIN` is unset).
 ## Markdown File Format
 
 **Inspiration** (`Inspirations/2026-06-19-113215.md`):
-```yaml
+```markdown
 ---
 type: inspiration
 status: active
 create: 2026-06-19 11:32:15
+priority: p2
+tags: [rust, learning]
 ---
+
 # User's note content
+
+Some additional body text...
+
+## 追加记录
+
+- **2026-06-20 14:30** Follow-up thought on this topic
+- **2026-06-21 09:15** Another update after sleeping on it
 ```
 
 **Daily Journal** (`Journal/Daily/2026-06-19.md`):
