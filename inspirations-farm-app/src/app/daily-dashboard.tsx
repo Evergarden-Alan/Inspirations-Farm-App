@@ -2,6 +2,8 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { Plus, Loader2, Circle, CheckCircle2, CornerDownRight, Check } from "lucide-react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -297,7 +299,7 @@ export function DailyDashboard() {
                         <Circle className={`${iconSize} text-slate-300 flex-shrink-0`} />
                       )}
                       <span
-                        className={`text-base leading-relaxed transition-all duration-200 ${
+                        className={`text-base leading-relaxed transition-all duration-200 min-w-0 ${
                           task.done
                             ? "text-slate-300 line-through"
                             : isSub
@@ -305,7 +307,24 @@ export function DailyDashboard() {
                               : "text-slate-700"
                         }`}
                       >
-                        {task.displayText}
+                        <ReactMarkdown
+                          remarkPlugins={[remarkGfm]}
+                          components={{
+                            p: ({node, ...props}) => (
+                              <span className="inline" {...props} />
+                            ),
+                            a: ({node, ...props}) => (
+                              <a
+                                className="text-blue-500 hover:underline"
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                {...props}
+                              />
+                            ),
+                          }}
+                        >
+                          {task.displayText.replace(/^- \[[x ]\] /, "")}
+                        </ReactMarkdown>
                         {task.sourceIdeaId && (
                           <span className="ml-1.5 text-[10px] text-slate-400 font-mono align-middle">
                             #{task.sourceIdeaId.slice(-6)}
