@@ -2,6 +2,8 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { Clock, Check } from "lucide-react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -98,7 +100,17 @@ export function JottingsCard() {
                 <span className="text-xs text-slate-400 font-mono flex-shrink-0 mt-0.5 w-10">
                   {n.time}
                 </span>
-                <span className="text-slate-600 leading-relaxed">{n.text}</span>
+                <div className="text-slate-600 leading-relaxed min-w-0 prose prose-sm prose-slate max-w-none break-words
+                  prose-p:my-0 prose-p:text-sm prose-p:leading-relaxed
+                  prose-a:text-blue-600 prose-a:no-underline hover:prose-a:underline
+                  prose-code:text-xs prose-code:bg-slate-100 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:font-mono prose-code:before:content-none prose-code:after:content-none
+                  prose-strong:text-slate-700 prose-strong:font-semibold
+                  prose-ul:my-0.5 prose-ol:my-0.5 prose-li:my-0.5 prose-li:text-sm
+                ">
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                    {n.text}
+                  </ReactMarkdown>
+                </div>
               </div>
             ))}
           </div>

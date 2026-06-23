@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Check, Trash2, Send, MessageSquarePlus } from "lucide-react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -512,9 +514,22 @@ function InspirationCard({
 
         {/* Content preview */}
         {item.content && (
-          <p className="text-xs text-slate-500 leading-relaxed line-clamp-2">
-            {item.content}
-          </p>
+          <div className="line-clamp-2 prose prose-sm prose-slate max-w-none break-words
+            prose-p:my-0.5 prose-p:leading-relaxed prose-p:text-xs
+            prose-ul:my-0.5 prose-ol:my-0.5
+            prose-li:my-1 prose-li:text-xs prose-li:leading-relaxed
+            prose-a:text-blue-600 prose-a:no-underline hover:prose-a:underline
+            prose-code:text-[11px] prose-code:bg-slate-100 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:font-mono prose-code:before:content-none prose-code:after:content-none
+            prose-pre:text-xs prose-pre:my-1
+            prose-strong:text-slate-700 prose-strong:font-semibold
+            prose-headings:my-1 prose-headings:text-sm prose-headings:font-medium
+            prose-hr:my-1
+            prose-blockquote:my-1 prose-blockquote:text-xs
+            prose-table:text-xs prose-th:text-xs prose-td:text-xs">
+            <ReactMarkdown remarkPlugins={[remarkGfm]}>
+              {item.content}
+            </ReactMarkdown>
+          </div>
         )}
 
         {/* Tags */}
@@ -543,9 +558,19 @@ function InspirationCard({
                 <span className="text-[11px] text-slate-400 font-mono">
                   {patch.time}
                 </span>
-                <p className="text-xs text-slate-500 leading-relaxed">
-                  {patch.content}
-                </p>
+                <div className="text-xs text-slate-500 leading-relaxed prose prose-sm prose-slate max-w-none break-words
+                  prose-p:my-0 prose-p:text-xs prose-p:leading-relaxed
+                  prose-a:text-blue-600 prose-a:no-underline hover:prose-a:underline
+                  prose-code:text-[11px] prose-code:bg-slate-100 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:font-mono prose-code:before:content-none prose-code:after:content-none
+                  prose-strong:text-slate-600 prose-strong:font-semibold
+                  prose-ul:my-0.5 prose-ol:my-0.5 prose-li:my-0.5 prose-li:text-xs
+                  prose-hr:my-1
+                  prose-blockquote:my-1 prose-blockquote:text-xs
+                ">
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                    {patch.content}
+                  </ReactMarkdown>
+                </div>
               </div>
             ))}
           </div>

@@ -32,6 +32,7 @@ A mobile-first PWA personal inspiration management system. GitHub-backed headles
 - **🌳 Nested Tasks** — markdown indent-parsed tree with parent-child state sync
 - **🔄 Daily Rollover** — cron job at Beijing 00:01 migrates undone tasks from yesterday to today (with dry-run + time-machine modes)
 - **📝 Inspiration Patches** — append timestamped follow-up notes to inspirations via `## 追加记录` markdown section
+- **📄 Rich Markdown Rendering** — `react-markdown` + `remark-gfm` + `@tailwindcss/typography`; supports **bold**, [links](url), `code`, tables, task lists
 - **📋 Template Support** — `Templates/Diary_Template.md` with `{{DATE:YYYY-MM-DD}}` placeholder
 - **📱 PWA** — install to home screen, offline cache, standalone mode
 - **📂 Headless CMS** — all data in your private GitHub repo as plain Markdown
@@ -173,6 +174,8 @@ All endpoints require `x-app-pin` header (unless `APP_PIN` is unset).
 **Dry-run response** includes `sourcePreview`, `targetPreview`, `extractedTasks`, `sourceDate`, `targetDate`.
 
 ## Markdown File Format
+
+All Markdown content is rendered with `react-markdown` + `remark-gfm` (GitHub Flavored Markdown) using `@tailwindcss/typography` prose styles. **Bold**, *italic*, `code`, [links](url), tables, task lists, and strikethrough are all supported.
 
 **Inspiration** (`Inspirations/2026-06-19-113215.md`):
 ```markdown
