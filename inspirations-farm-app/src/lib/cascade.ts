@@ -7,7 +7,7 @@
 
 const TASK_RE = /^(\s*)-\s*\[([ xX])\]\s+(.*)$/;
 
-/** Count leading whitespace — each space = 1, each tab = 2. */
+/** Count leading whitespace — normalise tabs to 2 spaces for consistent depth. */
 function countIndent(line: string): number {
   let n = 0;
   for (const ch of line) {

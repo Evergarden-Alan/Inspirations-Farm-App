@@ -101,6 +101,9 @@ function parseTaskTree(lines: string[]): TaskNode[] {
   const roots: TaskNode[] = [];
   const stack: TaskNode[] = [];
 
+  // Normalise mixed tab+space indentation: each tab → 2 spaces
+  const depth = (indent: string) => indent.replace(/\t/g, "  ").length;
+
   for (const line of lines) {
     const match = line.match(TASK_LINE_RE);
     if (!match) continue;
@@ -115,7 +118,8 @@ function parseTaskTree(lines: string[]): TaskNode[] {
     const node: TaskNode = { indent, status, text, raw, children: [] };
 
     // Pop stack until we find a node with less indent → that's our parent
-    while (stack.length > 0 && stack[stack.length - 1].indent.length >= indent.length) {
+    const currentDepth = depth(indent);
+    while (stack.length > 0 && depth(stack[stack.length - 1].indent) >= currentDepth) {
       stack.pop();
     }
 

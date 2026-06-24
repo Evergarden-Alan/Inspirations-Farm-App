@@ -500,13 +500,10 @@ export interface DailyJournal {
 }
 
 function calcIndent(ws: string): { level: number; raw: string } {
-  // Tabs: each tab = 1 level. Spaces: every 2 spaces = 1 level.
-  if (ws.includes("\t")) {
-    const count = ws.split("\t").length - 1;
-    return { level: count, raw: ws };
-  }
-  const count = ws.length;
-  return { level: Math.floor(count / 2), raw: ws };
+  // Normalise tabs to 2 spaces so mixed whitespace (e.g. \t + spaces) is
+  // handled correctly.  Then every 2 spaces = 1 indent level.
+  const normalised = ws.replace(/\t/g, "  ");
+  return { level: Math.floor(normalised.length / 2), raw: ws };
 }
 
 export function parseTasks(markdown: string): DailyTask[] {
@@ -700,7 +697,10 @@ export function insertSubtaskLine(
 ): string {
   const lines = content.split("\n");
   const parentIndentLen = parentTask.indent.length;
-  const subIndent = parentTask.indent + "    "; // 4 spaces per level
+  // Preserve the parent's indent style: tabs stay tabs, spaces stay spaces.
+  const subIndent = parentTask.indent.includes("\t")
+    ? parentTask.indent + "\t"
+    : parentTask.indent + "  ";
   const newLine = `${subIndent}- [ ] ${subtaskText}`;
 
   // Start from the parent line, scan forward to find the last subtask
