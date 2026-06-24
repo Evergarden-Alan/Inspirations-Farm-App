@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input";
 import { apiFetch, AuthError } from "@/lib/api";
 import { getBeijingDateString } from "@/lib/beijing-time";
 import { insertSubtaskLine, insertIntoDailySection, parseTasks } from "@/lib/github";
-import { cascadeToggle, applyTaskChanges } from "@/lib/cascade";
+import { cascadeToggleAtLine } from "@/lib/cascade";
 import type { DailyTask } from "@/lib/github";
 
 interface DailyState {
@@ -91,14 +91,17 @@ export function DailyDashboard() {
     if (!state?.content || !state.sha || !state.path || !state.tasks) return;
 
     const oldTasks = state.tasks;
-    const newTasks = cascadeToggle(oldTasks, index);
+    const toggledTask = oldTasks[index];
 
-    // Build updated markdown from the diff
-    const updatedContent = applyTaskChanges(state.content, oldTasks, newTasks);
-    if (updatedContent === state.content && oldTasks[index].done === newTasks[index].done) {
+    // Operate directly on raw content using line numbers
+    const updatedContent = cascadeToggleAtLine(state.content, toggledTask.lineNumber);
+    if (updatedContent === state.content) {
       setError("Failed to update task in file");
       return;
     }
+
+    // Re-parse tasks from the updated content for UI state
+    const newTasks = parseTasks(updatedContent);
 
     setActing(true);
     setError(null);
@@ -280,6 +283,8 @@ export function DailyDashboard() {
             {state.tasks.map((task, i) => {
               const isSub = task.indentLevel > 0;
               const iconSize = isSub ? "w-5 h-5" : "w-6 h-6";
+              const isRollover = task.displayText.includes("🔄");
+              const cleanText = task.displayText.replace(/🔄/g, "").trim();
 
               return (
                 <li key={task.id}>
@@ -323,11 +328,16 @@ export function DailyDashboard() {
                             ),
                           }}
                         >
-                          {task.displayText.replace(/^- \[[x ]\] /, "")}
+                          {cleanText.replace(/^- \[[x ]\] /, "")}
                         </ReactMarkdown>
                         {task.sourceIdeaId && (
                           <span className="ml-1.5 text-[10px] text-slate-400 font-mono align-middle">
                             #{task.sourceIdeaId.slice(-6)}
+                          </span>
+                        )}
+                        {isRollover && (
+                          <span className="ml-1.5 text-[10px] px-1.5 py-0.5 bg-amber-100 text-amber-700 rounded-sm font-medium">
+                            延期
                           </span>
                         )}
                       </span>

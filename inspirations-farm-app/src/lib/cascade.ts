@@ -1,66 +1,133 @@
-import type { DailyTask } from "./github";
-
 /**
- * Compute new tasks state after toggling one task,
- * applying both downward and upward cascades.
+ * Task toggle with line-based downward cascade and upward parent recomputation.
  *
- * Downward: all descendants inherit the same done state.
- * Upward: a parent becomes done if all its children are done,
- *         and becomes not-done if any child is not done.
+ * Works directly on raw markdown content rather than parsed DailyTask arrays,
+ * avoiding false matches from String.replace when tasks share the same text.
  */
-export function cascadeToggle(
-  tasks: DailyTask[],
-  toggledIndex: number
-): DailyTask[] {
-  const updated = tasks.map((t) => ({ ...t }));
-  const toggled = updated[toggledIndex];
-  const newDone = !toggled.done;
 
-  // 1) Toggle the clicked task itself
-  toggled.done = newDone;
+const TASK_RE = /^(\s*)-\s*\[([ xX])\]\s+(.*)$/;
 
-  // 2) Downward cascade — all deeper descendants get the same state
-  for (let i = toggledIndex + 1; i < updated.length; i++) {
-    if (updated[i].indentLevel <= toggled.indentLevel) break;
-    updated[i].done = newDone;
+/** Count leading whitespace — each space = 1, each tab = 2. */
+function countIndent(line: string): number {
+  let n = 0;
+  for (const ch of line) {
+    if (ch === " ") n++;
+    else if (ch === "\t") n += 2;
+    else break;
   }
+  return n;
+}
 
-  // 3) Upward cascade — recompute ancestors
-  let current: DailyTask | undefined = toggled;
-  while (current.parentId !== null) {
-    const parent = updated.find((t) => t.id === current!.parentId);
-    if (!parent) break;
-    const siblings = updated.filter((t) => t.parentId === parent.id);
-    parent.done = siblings.every((s) => s.done);
-    current = parent;
+/** Flip a checkbox: - [ ] ↔ - [x] */
+function toggleCheckbox(line: string): string {
+  if (/^(\s*)-\s*\[[xX]\]/.test(line)) {
+    return line.replace(/^(\s*)-\s*\[[xX]\]/, "$1- [ ]");
   }
+  return line.replace(/^(\s*)-\s*\[ \]/, "$1- [x]");
+}
 
-  return updated;
+/** Set a checkbox to a specific state (- [x] or - [ ]). */
+function setCheckbox(line: string, done: boolean): string {
+  if (done) {
+    if (/^(\s*)-\s*\[[xX]\]/.test(line)) return line;
+    return line.replace(/^(\s*)-\s*\[ \]/, "$1- [x]");
+  } else {
+    if (/^(\s*)-\s*\[ \]/.test(line)) return line;
+    return line.replace(/^(\s*)-\s*\[[xX]\]/, "$1- [ ]");
+  }
 }
 
 /**
- * Apply a tasks-array diff back into the raw markdown content.
- * Only lines whose done state changed are replaced.
- * Uses exact string matching with indentation preserved.
+ * Toggle a task checkbox at the given line index and cascade the change
+ * to all nested descendants. Also recomputes ancestor states upward.
+ *
+ * @param content  Raw markdown content of the daily journal.
+ * @param lineIndex  Index of the line being toggled (0-based, in content.split('\n')).
+ * @returns  Updated markdown content.
  */
-export function applyTaskChanges(
+export function cascadeToggleAtLine(
   content: string,
-  oldTasks: DailyTask[],
-  newTasks: DailyTask[]
+  lineIndex: number
 ): string {
-  let result = content;
+  const lines = content.split("\n");
+  const targetLine = lines[lineIndex];
+  const targetIndent = countIndent(targetLine);
+  const targetWasDone = /^(\s*)-\s*\[[xX]\]/.test(targetLine);
 
-  // Process from bottom to top so earlier indices stay valid
-  for (let i = newTasks.length - 1; i >= 0; i--) {
-    const old = oldTasks[i];
-    const neo = newTasks[i];
-    if (old.done === neo.done) continue;
+  // 1) Toggle the clicked line
+  lines[lineIndex] = toggleCheckbox(targetLine);
+  const newDone = !targetWasDone;
 
-    const oldLine = `${old.indent}- [${old.done ? "x" : " "}] ${old.text}`;
-    const newLine = `${neo.indent}- [${neo.done ? "x" : " "}] ${neo.text}`;
+  // 2) Downward cascade — sync all deeper descendants
+  for (let i = lineIndex + 1; i < lines.length; i++) {
+    const line = lines[i];
+    if (line.trim() === "") continue;
 
-    result = result.replace(oldLine, newLine);
+    const indent = countIndent(line);
+    if (indent <= targetIndent) break; // back to same or shallower level → stop
+
+    const taskMatch = line.match(TASK_RE);
+    if (taskMatch) {
+      lines[i] = setCheckbox(line, newDone);
+    }
+    // Non-task lines between siblings (blank already skipped) → skip
   }
 
-  return result;
+  // 3) Upward cascade — recompute ancestors
+  recomputeAncestors(lines, lineIndex, targetIndent);
+
+  return lines.join("\n");
+}
+
+/**
+ * Walk upward from a changed task and recompute each ancestor's checkbox
+ * based on whether all of its descendants are done.
+ */
+function recomputeAncestors(
+  lines: string[],
+  changedIndex: number,
+  changedIndent: number
+): void {
+  // Find the parent by walking up to the nearest task with less indent
+  for (let p = changedIndex - 1; p >= 0; p--) {
+    const parentLine = lines[p];
+    if (parentLine.trim() === "") continue;
+
+    const parentIndent = countIndent(parentLine);
+    if (parentIndent >= changedIndent) continue; // sibling or child — keep going up
+
+    const parentMatch = parentLine.match(TASK_RE);
+    if (!parentMatch) continue; // non-task line — skip
+
+    // Found a parent — scan all descendants and check if all are done
+    let allDone = true;
+    let hasDescendants = false;
+
+    for (let d = p + 1; d < lines.length; d++) {
+      const descLine = lines[d];
+      if (descLine.trim() === "") continue;
+
+      const descIndent = countIndent(descLine);
+      if (descIndent <= parentIndent) break; // past this parent's subtree
+
+      const descMatch = descLine.match(TASK_RE);
+      if (descMatch) {
+        hasDescendants = true;
+        if (descMatch[2] === " ") {
+          allDone = false;
+        }
+      }
+    }
+
+    if (hasDescendants) {
+      const parentDone = /^(\s*)-\s*\[[xX]\]/.test(parentLine);
+      if (allDone !== parentDone) {
+        lines[p] = setCheckbox(parentLine, allDone);
+        // Continue upward with this parent as the changed node
+        changedIndent = parentIndent;
+        continue; // keep walking up
+      }
+    }
+    break; // parent state unchanged — ancestors above it are unaffected
+  }
 }
