@@ -29,8 +29,9 @@ A mobile-first PWA personal inspiration management system. GitHub-backed headles
 - **🔗 Inspiration → Task Linking** — push inspirations to today's journal as `[[timestamp|title]]` wiki-links
 - **✅ Cascade Archive** — completing a linked task auto-archives the inspiration
 - **⏳ Relative Time** — Beijing-timezone-aware "X小时前" labels
-- **🌳 Nested Tasks** — markdown indent-parsed tree with parent-child state sync
-- **🔄 Daily Rollover** — cron job at Beijing 00:01 migrates undone tasks from yesterday to today (with dry-run + time-machine modes)
+- **🌳 Nested Tasks** — markdown indent-parsed tree with parent-child cascade toggle (line-based, avoids false String.replace matches)
+- **🔄 Daily Rollover** — tree-based splitting preserves parent-child relationships; `🔄` marker tags rolled-over tasks so the frontend highlights them with an amber "延期" badge
+- **🏷️ Rollover Badge** — tasks carried over from yesterday render a `延期` badge (`bg-amber-100 text-amber-700`), visually distinguishing legacy items from today's new tasks
 - **📝 Inspiration Patches** — append timestamped follow-up notes to inspirations via `## 追加记录` markdown section
 - **📄 Rich Markdown Rendering** — `react-markdown` + `remark-gfm` + `@tailwindcss/typography`; prose styles for inspiration cards & jottings; inline-safe rendering for todo tasks (no prose, `<p>`→`<span>`, keeps flex layout)
 - **📋 Template Support** — `Templates/Diary_Template.md` with `{{DATE:YYYY-MM-DD}}` placeholder
@@ -219,7 +220,12 @@ date: 2026-06-19
 # 本日总结
 ```
 
-**Rollover behavior**: at Beijing 00:01 each day, the cron job reads **yesterday's** journal, marks undone `- [ ]` tasks as `- [>]` (migrated), and appends fresh `- [ ]` copies into **today's** `# 当日日程` section. The `[rollover]` log prefix emits `[INFO] 正在读取的源文件日期: YYYY-MM-DD, 正在写入的目标文件日期: YYYY-MM-DD` for auditability. Time-machine mode (`targetDate=YYYY-MM-DD`) overrides the source date explicitly while keeping target = source + 1. Safe `setUTCDate(±1)` arithmetic handles month/year boundaries correctly.
+**Rollover behavior**: at Beijing 00:01 each day, the cron job reads **yesterday's** journal and builds a **task tree** from the `# 当日日程` section (handles `[x]`, `[ ]`, `[>]` markers at arbitrary nesting depth). The tree is then split recursively:
+- **Fully done** subtrees (parent `[x]` + all descendants `[x]`) stay in yesterday as-is.
+- **Partially complete** subtrees are split: done portions remain in yesterday (parent `[>]`, children `[x]`), undone portions are migrated to today (parent `[ ]`, children `[ ]`) with nesting preserved.
+- Migrated tasks get a `🔄` suffix so the frontend renders an amber "延期" badge — no raw emoji visible to the user. Double-stacking is prevented.
+
+This tree-based approach eliminates the orphan-subtask bug (where old line-by-line filtering could split children from their parent, creating orphaned indented items on the target day).
 
 **Real-time UI updates**: all mutations use optimistic updates — the UI applies changes immediately from the server response (or locally-computed content), avoiding the GitHub API's eventual-consistency delay. Patch appends, task toggles, task/subtask additions, and daily notes all update instantly without a re-fetch.
 
