@@ -36,6 +36,8 @@ export interface RolloverOptions {
 }
 
 const ROLLOVER_LOG_PREFIX = "[rollover]" as const;
+const TEMPLATE_PATH =
+  process.env.DIARY_TEMPLATE_PATH || "Templates/Diary_Template.md";
 
 // ── Tree Types ────────────────────────────────────────────
 
@@ -385,12 +387,19 @@ export async function executeRollover(
 
       let template: string;
       try {
-        template = await getFileContent("Templates/Diary_Template.md");
-        template = template.replace(/\{\{DATE:YYYY-MM-DD\}\}/g, target);
-        log(`Loaded template (${template.length} chars)`);
+        template = await getFileContent(TEMPLATE_PATH);
+        // Support both Obsidian-style {{date}} and legacy {{DATE:YYYY-MM-DD}}
+        template = template
+          .replace(/\{\{DATE:YYYY-MM-DD\}\}/g, target)
+          .replace(/\{\{date\}\}/g, target);
+        log(
+          `Loaded template from ${TEMPLATE_PATH} (${template.length} chars)` +
+            (dryRun ? " [DRY RUN]" : "")
+        );
       } catch (templateErr) {
-        logErr(
-          `Template not found, using fallback:`,
+        console.warn(
+          ROLLOVER_LOG_PREFIX,
+          `Template not found at ${TEMPLATE_PATH}, using fallback:`,
           templateErr instanceof Error ? templateErr.message : templateErr
         );
         template = [
@@ -419,8 +428,25 @@ export async function executeRollover(
         ].join("\n");
       }
 
-      // Insert tomorrowLines into the template's # 当日日程 section
-      targetContent = insertIntoSection(template, tomorrowLines);
+      // Inject tomorrowLines into the template
+      const TODO_PLACEHOLDER = "%%TODO_PLACEHOLDER%%";
+      if (template.includes(TODO_PLACEHOLDER)) {
+        targetContent = template.replace(
+          TODO_PLACEHOLDER,
+          tomorrowLines.join("\n")
+        );
+        log(
+          `Injected ${tomorrowLines.length} task lines at %%TODO_PLACEHOLDER%%` +
+            (dryRun ? " [DRY RUN]" : "")
+        );
+      } else {
+        // Fallback: insert into # 当日日程 section
+        targetContent = insertIntoSection(template, tomorrowLines);
+        log(
+          `%%TODO_PLACEHOLDER%% not found — inserted after ## 当日日程` +
+            (dryRun ? " [DRY RUN]" : "")
+        );
+      }
 
       if (dryRun) {
         log("━━━ DRY RUN: would create target ━━━");

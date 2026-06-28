@@ -34,7 +34,7 @@ A mobile-first PWA personal inspiration management system. GitHub-backed headles
 - **🏷️ Rollover Badge** — tasks carried over from yesterday render a `延期` badge (`bg-amber-100 text-amber-700`), visually distinguishing legacy items from today's new tasks
 - **📝 Inspiration Patches** — append timestamped follow-up notes to inspirations via `## 追加记录` markdown section
 - **📄 Rich Markdown Rendering** — `react-markdown` + `remark-gfm` + `@tailwindcss/typography`; prose styles for inspiration cards & jottings; inline-safe rendering for todo tasks (no prose, `<p>`→`<span>`, keeps flex layout)
-- **📋 Template Support** — `Templates/Diary_Template.md` with `{{DATE:YYYY-MM-DD}}` placeholder
+- **📋 Template Support** — `Templates/Diary_Template.md` fetched from GitHub at rollover time; supports `{{date}}` / `{{DATE:YYYY-MM-DD}}` and `%%TODO_PLACEHOLDER%%` placeholders; path configurable via `DIARY_TEMPLATE_PATH` env var; falls back to built-in template on fetch failure
 - **📱 PWA** — install to home screen, offline cache, standalone mode
 - **📂 Headless CMS** — all data in your private GitHub repo as plain Markdown
 
@@ -98,6 +98,7 @@ REPO_OWNER=your-github-username
 REPO_NAME=your-private-repo
 APP_PIN=1234                                 # lock screen PIN (omit to skip auth)
 CRON_SECRET=your-random-secret               # for Vercel Cron Job auth
+DIARY_TEMPLATE_PATH=Templates/Diary_Template.md  # optional, defaults to this value
 ```
 
 ### 3. Repository Structure
@@ -224,6 +225,8 @@ date: 2026-06-19
 - **Fully done** subtrees (parent `[x]` + all descendants `[x]`) stay in yesterday as-is.
 - **Partially complete** subtrees are split: done portions remain in yesterday (parent `[>]`, children `[x]`), undone portions are migrated to today (parent `[ ]`, children `[ ]`) with nesting preserved.
 - Migrated tasks get a `🔄` suffix so the frontend renders an amber "延期" badge — no raw emoji visible to the user. Double-stacking is prevented.
+
+When today's journal doesn't exist yet, the rollover **fetches the Obsidian template** from `Templates/Diary_Template.md` on GitHub (path configurable via `DIARY_TEMPLATE_PATH`). It replaces `{{date}}` / `{{DATE:YYYY-MM-DD}}` with the target date and injects undone tasks at `%%TODO_PLACEHOLDER%%`. If the placeholder isn't found, tasks are appended after `## 当日日程`. If the template fetch fails, a built-in fallback template is used — the script never crashes on a missing template file.
 
 This tree-based approach eliminates the orphan-subtask bug (where old line-by-line filtering could split children from their parent, creating orphaned indented items on the target day).
 
