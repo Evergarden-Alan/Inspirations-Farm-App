@@ -1,16 +1,19 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { InspirationFeed } from "./inspiration-feed";
 import { DailyDashboard } from "./daily-dashboard";
 import { JottingsCard } from "./jottings-card";
 import { LockScreen } from "./lock-screen";
-import { hasPin } from "@/lib/api";
+import { hasPin, apiFetch, AuthError } from "@/lib/api";
+import { getBeijingDateString } from "@/lib/beijing-time";
 
 export default function Home() {
   const [unlocked, setUnlocked] = useState(false);
   const [checking, setChecking] = useState(true);
+  const reconciled = useRef(false);
 
+  // ── Lock screen ────────────────────────────────────
   useEffect(() => {
     if (hasPin()) {
       setUnlocked(true);
@@ -23,6 +26,64 @@ export default function Home() {
     window.addEventListener("auth:expired", handleAuthExpired);
     return () => window.removeEventListener("auth:expired", handleAuthExpired);
   }, []);
+
+  // ── Obsidian reconciliation ─────────────────────────
+  // When a user checks off a linked task in Obsidian and pushes to GitHub,
+  // the inspiration's status doesn't update automatically. This effect
+  // compares today's completed tasks against active inspirations and
+  // archives any that were finished in Obsidian.
+  useEffect(() => {
+    if (!unlocked || reconciled.current) return;
+
+    async function reconcile() {
+      try {
+        const today = getBeijingDateString();
+        const [dailyRes, ideaRes] = await Promise.all([
+          apiFetch(`/api/daily?date=${today}`),
+          apiFetch("/api/github"),
+        ]);
+        const dailyData = await dailyRes.json();
+        const ideaData = await ideaRes.json();
+
+        if (!dailyData.ok || !ideaData.ok) return;
+
+        // Completed tasks that link to an inspiration
+        const completedIdeaIds: string[] = (dailyData.tasks || [])
+          .filter((t: { done: boolean; sourceIdeaId: string | null }) => t.done && t.sourceIdeaId)
+          .map((t: { sourceIdeaId: string }) => t.sourceIdeaId);
+
+        if (completedIdeaIds.length === 0) return;
+
+        // Active inspirations (still show in the feed)
+        const activeIds = new Set(
+          (ideaData.items || []).map((i: { id: string }) => i.id)
+        );
+
+        // Which completed tasks have inspirations that are still active?
+        const needsSync = completedIdeaIds.filter((id: string) => activeIds.has(id));
+
+        if (needsSync.length > 0) {
+          console.log(`[reconcile] Syncing ${needsSync.length} ideas completed in Obsidian...`);
+          const syncRes = await apiFetch("/api/github", {
+            method: "POST",
+            body: JSON.stringify({ action: "syncIdeas", ideaIds: needsSync }),
+          });
+          const syncData = await syncRes.json();
+          if (syncData.ok && syncData.synced > 0) {
+            console.log(`[reconcile] Done — ${syncData.synced} archived`);
+            window.dispatchEvent(new CustomEvent("inspiration:updated"));
+          }
+        }
+      } catch (err) {
+        if (!(err instanceof AuthError)) {
+          console.warn("[reconcile] Silent error:", err);
+        }
+      }
+    }
+
+    reconciled.current = true;
+    reconcile();
+  }, [unlocked]);
 
   if (checking) {
     return (

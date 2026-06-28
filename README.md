@@ -27,7 +27,7 @@ A mobile-first PWA personal inspiration management system. GitHub-backed headles
 - **🏷️ Priority & Tags** — p0–p3 priority border + tag pills with filter bar
 - **📅 Daily Dashboard** — journal with nested task checkboxes, parent-child cascade logic
 - **🔗 Inspiration → Task Linking** — push inspirations to today's journal as `[[timestamp|title]]` wiki-links; backend dedup prevents double-entry; push button shows spinner + success/duplicate feedback
-- **✅ Cascade Archive** — completing a linked task auto-archives the inspiration
+- **✅ Cascade Archive** — completing a linked task auto-archives the inspiration (both via web toggle and Obsidian-side reconciliation on next page load)
 - **⏳ Relative Time** — Beijing-timezone-aware "X小时前" labels
 - **🌳 Nested Tasks** — markdown indent-parsed tree with parent-child cascade toggle (line-based, avoids false String.replace matches)
 - **🔄 Daily Rollover** — tree-based splitting preserves parent-child relationships; `🔄` marker tags rolled-over tasks so the frontend highlights them with an amber "延期" badge

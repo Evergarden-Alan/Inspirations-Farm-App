@@ -389,6 +389,72 @@ export async function archiveInspiration(filePath: string): Promise<void> {
   });
 }
 
+// ── Sync ideas state (Obsidian reconciliation) ──────────
+
+/**
+ * Batch-update inspiration status to completed.
+ * Used when Obsidian marks a linked task as done and the web app
+ * needs to catch up on the inspiration side.
+ *
+ * @returns Count of actually-synced items and any per-item errors.
+ */
+export async function syncIdeasState(
+  ideaIds: string[]
+): Promise<{ synced: number; errors: string[] }> {
+  const { owner, repo } = getConfig();
+  let synced = 0;
+  const errors: string[] = [];
+
+  // Process sequentially to avoid race conditions on the same repo
+  for (const id of ideaIds) {
+    try {
+      const filePath = `Inspirations/${id}.md`;
+      const data = await githubFetch<{
+        sha: string;
+        content: string;
+        encoding: string;
+      }>(`/repos/${owner}/${repo}/contents/${filePath}`);
+
+      if (data.encoding !== "base64") {
+        errors.push(`${id}: unexpected encoding ${data.encoding}`);
+        continue;
+      }
+      const raw = Buffer.from(data.content, "base64").toString("utf-8");
+
+      // Skip if already completed (idempotent)
+      if (/^status:\s*completed\s*$/m.test(raw)) {
+        continue;
+      }
+
+      const updated = raw.replace(/^status:\s*.*$/m, "status: completed");
+      const encoded = Buffer.from(updated, "utf-8").toString("base64");
+
+      await githubFetch(`/repos/${owner}/${repo}/contents/${filePath}`, {
+        method: "PUT",
+        body: JSON.stringify({
+          message: `Auto-sync: mark inspiration as completed`,
+          content: encoded,
+          sha: data.sha,
+        }),
+        headers: { "Content-Type": "application/json" },
+      });
+
+      synced++;
+      console.log(`[syncIdeasState] Archived: ${id}`);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : "Unknown error";
+      // 404 = file doesn't exist (maybe already deleted) — not an error
+      if (msg.includes("404")) {
+        console.log(`[syncIdeasState] ${id} not found (already gone)`);
+        continue;
+      }
+      errors.push(`${id}: ${msg}`);
+    }
+  }
+
+  return { synced, errors };
+}
+
 // ── Patch append (追加记录) ─────────────────────────────
 
 /**

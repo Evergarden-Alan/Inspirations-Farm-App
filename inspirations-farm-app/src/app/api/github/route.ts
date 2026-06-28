@@ -7,6 +7,7 @@ import {
   updateFileStatus,
   archiveInspiration,
   appendInspirationPatch,
+  syncIdeasState,
 } from "@/lib/github";
 import { validatePin } from "@/lib/auth";
 import { getBeijingTimestamp } from "@/lib/beijing-time";
@@ -38,7 +39,23 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   if (!validatePin(req)) return deny();
   try {
-    const { content, priority, tags } = await req.json();
+    const body = await req.json();
+
+    // ── Sync ideas state (Obsidian reconciliation) ──────
+    if (body.action === "syncIdeas") {
+      const ideaIds = body.ideaIds;
+      if (!Array.isArray(ideaIds) || ideaIds.length === 0) {
+        return Response.json(
+          { ok: false, error: "Missing or invalid 'ideaIds' array" },
+          { status: 400 }
+        );
+      }
+      const result = await syncIdeasState(ideaIds);
+      revalidatePath("/");
+      return Response.json({ ok: true, ...result });
+    }
+
+    const { content, priority, tags } = body;
 
     if (!content || typeof content !== "string") {
       return Response.json(
