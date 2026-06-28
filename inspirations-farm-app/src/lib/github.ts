@@ -33,6 +33,7 @@ async function githubFetch<T = unknown>(
 
   const res = await fetch(url, {
     ...options,
+    cache: "no-store",
     headers: {
       Authorization: `Bearer ${pat}`,
       Accept: "application/vnd.github+json",

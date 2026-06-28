@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { Clock, Check } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -15,9 +15,17 @@ interface DailyNote {
   text: string;
 }
 
-export function JottingsCard() {
+interface JottingsCardProps {
+  initialNotes?: {
+    notes: DailyNote[];
+    dailyExists: boolean;
+  };
+}
+
+export function JottingsCard({ initialNotes }: JottingsCardProps = {}) {
   const [notes, setNotes] = useState<DailyNote[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!initialNotes);
+  const seeded = useRef(false);
   const [noteText, setNoteText] = useState("");
   const [acting, setActing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -39,7 +47,14 @@ export function JottingsCard() {
   }, [date]);
 
   useEffect(() => {
-    fetchNotes();
+    // Seed from server-provided data on first mount
+    if (initialNotes && !seeded.current) {
+      seeded.current = true;
+      setNotes(initialNotes.notes ?? []);
+      // loading already set to false via useState initializer
+    } else if (!initialNotes) {
+      fetchNotes();
+    }
 
     // Refresh when another component modifies the daily journal
     function handleDailyUpdate() {
@@ -47,7 +62,8 @@ export function JottingsCard() {
     }
     window.addEventListener("daily:updated", handleDailyUpdate);
     return () => window.removeEventListener("daily:updated", handleDailyUpdate);
-  }, [fetchNotes]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // ── Add note ────────────────────────────────────────
   async function handleAddNote() {

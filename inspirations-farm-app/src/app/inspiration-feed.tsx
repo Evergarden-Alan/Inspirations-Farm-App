@@ -27,10 +27,15 @@ interface Inspiration {
   patches?: { time: string; content: string }[];
 }
 
-export function InspirationFeed() {
+interface InspirationFeedProps {
+  initialItems?: Inspiration[];
+}
+
+export function InspirationFeed({ initialItems }: InspirationFeedProps = {}) {
   const [content, setContent] = useState("");
   const [items, setItems] = useState<Inspiration[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!initialItems);
+  const seeded = useRef(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
@@ -61,7 +66,14 @@ export function InspirationFeed() {
   }, []);
 
   useEffect(() => {
-    fetchItems();
+    // Seed from server-provided data on first mount
+    if (initialItems && !seeded.current) {
+      seeded.current = true;
+      setItems(initialItems.filter((i: Inspiration) => i.status !== "completed"));
+      setLoading(false);
+    } else if (!initialItems) {
+      fetchItems();
+    }
 
     // Listen for inspiration updates from other components (e.g. task archive)
     function handleUpdate() {
@@ -69,7 +81,8 @@ export function InspirationFeed() {
     }
     window.addEventListener("inspiration:updated", handleUpdate);
     return () => window.removeEventListener("inspiration:updated", handleUpdate);
-  }, [fetchItems]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // ── Create inspiration ──────────────────────────────
   async function handlePlant() {

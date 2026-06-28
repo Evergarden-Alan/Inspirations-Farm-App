@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { Plus, Loader2, Circle, CheckCircle2, CornerDownRight, Check } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -21,9 +21,20 @@ interface DailyState {
   tasks?: DailyTask[];
 }
 
-export function DailyDashboard() {
+interface DailyDashboardProps {
+  initialDaily?: {
+    exists: boolean;
+    path?: string;
+    sha?: string;
+    content?: string;
+    tasks?: DailyTask[];
+  };
+}
+
+export function DailyDashboard({ initialDaily }: DailyDashboardProps = {}) {
   const [state, setState] = useState<DailyState | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!initialDaily);
+  const seeded = useRef(false);
   const [acting, setActing] = useState(false);
   const [newTask, setNewTask] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -55,14 +66,32 @@ export function DailyDashboard() {
   }, [date]);
 
   useEffect(() => {
-    fetchJournal();
+    // Seed from server-provided data on first mount
+    if (initialDaily && !seeded.current) {
+      seeded.current = true;
+      if (initialDaily.exists) {
+        setState({
+          exists: true,
+          path: initialDaily.path,
+          sha: initialDaily.sha,
+          content: initialDaily.content,
+          tasks: initialDaily.tasks ?? [],
+        });
+      } else {
+        setState({ exists: false });
+      }
+      setLoading(false);
+    } else if (!initialDaily) {
+      fetchJournal();
+    }
 
     function handleDailyUpdate() {
       fetchJournal();
     }
     window.addEventListener("daily:updated", handleDailyUpdate);
     return () => window.removeEventListener("daily:updated", handleDailyUpdate);
-  }, [fetchJournal]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // ── Create journal ──────────────────────────────────
   async function handleCreate() {
