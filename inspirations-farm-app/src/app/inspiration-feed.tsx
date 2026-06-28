@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Check, Trash2, Send, MessageSquarePlus } from "lucide-react";
+import { Check, Trash2, Send, MessageSquarePlus, Loader2 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Textarea } from "@/components/ui/textarea";
@@ -169,6 +169,10 @@ export function InspirationFeed() {
 
   // ── Push to daily ────────────────────────────────────
   const [pushingId, setPushingId] = useState<string | null>(null);
+  const [pushFeedback, setPushFeedback] = useState<{
+    id: string;
+    type: "success" | "duplicate";
+  } | null>(null);
 
   // ── Append patch ─────────────────────────────────────
   const [appendingId, setAppendingId] = useState<string | null>(null);
@@ -177,6 +181,7 @@ export function InspirationFeed() {
   async function handlePushToDaily(item: Inspiration) {
     setPushingId(item.id);
     setError(null);
+    setPushFeedback(null);
     try {
       const res = await apiFetch("/api/daily", {
         method: "POST",
@@ -188,15 +193,21 @@ export function InspirationFeed() {
       });
       const data = await res.json();
       if (data.ok) {
+        setPushFeedback({ id: item.id, type: "success" });
         window.dispatchEvent(new CustomEvent("daily:updated"));
         router.refresh();
       } else {
-        setError(data.error ?? "Failed to push");
+        if (data.duplicate) {
+          setPushFeedback({ id: item.id, type: "duplicate" });
+        } else {
+          setError(data.error ?? "Failed to push");
+        }
       }
     } catch (err) {
       if (!(err instanceof AuthError)) setError("Network error");
     } finally {
       setPushingId(null);
+      setTimeout(() => setPushFeedback(null), 2500);
     }
   }
 
@@ -443,6 +454,9 @@ export function InspirationFeed() {
               onAppendTextChange={setAppendText}
               disabled={actionLoading === item.sha}
               pushing={pushingId === item.id}
+              pushFeedback={
+                pushFeedback?.id === item.id ? pushFeedback.type : null
+              }
               appending={appendingId === item.id}
               appendText={appendText}
             />
@@ -464,6 +478,7 @@ function InspirationCard({
   onAppendTextChange,
   disabled,
   pushing,
+  pushFeedback,
   appending,
   appendText,
 }: {
@@ -476,6 +491,7 @@ function InspirationCard({
   onAppendTextChange: (text: string) => void;
   disabled: boolean;
   pushing: boolean;
+  pushFeedback: "success" | "duplicate" | null;
   appending: boolean;
   appendText: string;
 }) {
@@ -610,17 +626,38 @@ function InspirationCard({
 
         {/* Footer: survival time + actions */}
         <div className="flex items-center justify-between pt-2 border-t border-slate-100">
-          <span className="text-xs text-slate-400">{survival}</span>
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-slate-400">{survival}</span>
+            {pushFeedback && (
+              <span
+                className={`text-xs font-medium ${
+                  pushFeedback === "success"
+                    ? "text-emerald-600"
+                    : "text-amber-600"
+                }`}
+              >
+                {pushFeedback === "success" ? "✓ 已发送" : "⚠ 已在日程中"}
+              </span>
+            )}
+          </div>
 
           <div className="flex items-center gap-1">
             {/* Push to daily */}
             <button
               onClick={() => onPush(item)}
               disabled={disabled || pushing}
-              className="flex items-center justify-center min-w-[44px] min-h-[44px] rounded-lg text-slate-400 hover:text-blue-600 hover:bg-blue-50 active:bg-blue-100 transition-all disabled:opacity-30 md:opacity-0 md:group-hover:opacity-100 touch-manipulation"
+              className={`flex items-center justify-center min-w-[44px] min-h-[44px] rounded-lg transition-all md:opacity-0 md:group-hover:opacity-100 touch-manipulation ${
+                pushing
+                  ? "bg-slate-200 text-slate-400 cursor-not-allowed"
+                  : "text-slate-400 hover:text-blue-600 hover:bg-blue-50 active:bg-blue-100"
+              }`}
               title="推送到今日"
             >
-              <Send className={`w-4 h-4 ${pushing ? "animate-pulse" : ""}`} />
+              {pushing ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Send className="w-4 h-4" />
+              )}
             </button>
 
             {/* Append patch */}

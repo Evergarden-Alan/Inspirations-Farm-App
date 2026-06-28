@@ -110,6 +110,14 @@ export async function POST(req: NextRequest) {
         journal.content = "";
       }
 
+      // Dedup: check if this ideaId is already in today's tasks
+      if (journal.content && journal.content.includes(body.ideaId)) {
+        return Response.json(
+          { ok: false, error: "该灵感已在今日日程中", duplicate: true },
+          { status: 409 }
+        );
+      }
+
       const newContent = insertIntoDailySection(
         journal.content || "",
         taskLine
