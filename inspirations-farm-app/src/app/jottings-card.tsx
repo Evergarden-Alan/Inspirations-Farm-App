@@ -4,6 +4,8 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import { Clock, Check } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import remarkMath from "remark-math";
+import rehypeKatex from "rehype-katex";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -123,7 +125,10 @@ export function JottingsCard({ initialNotes }: JottingsCardProps = {}) {
                   prose-strong:text-slate-700 prose-strong:font-semibold
                   prose-ul:my-0.5 prose-ol:my-0.5 prose-li:my-0.5 prose-li:text-sm
                 ">
-                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                  <ReactMarkdown
+                    remarkPlugins={[remarkGfm, remarkMath]}
+                    rehypePlugins={[[rehypeKatex, { strict: false, throwOnError: false, output: "html" }]]}
+                  >
                     {n.text}
                   </ReactMarkdown>
                 </div>
