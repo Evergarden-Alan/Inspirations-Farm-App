@@ -1,36 +1,139 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Inspirations Farm
+
+A personal inspiration management dashboard backed by a GitHub-hosted Obsidian vault. The app captures ideas, daily jottings, and daily tasks, then renders them as Markdown in a Next.js dashboard.
+
+## Tech Stack
+
+- Next.js 16 App Router
+- React 19
+- TypeScript
+- Tailwind CSS v4
+- shadcn/ui + Base UI React primitives
+- GitHub REST API as the flat-file persistence layer
+- `react-markdown` with GitHub-Flavored Markdown and KaTeX math rendering
+
+## Features
+
+- Inspiration pool with priority, tags, completion, deletion, and append-only patches
+- Daily dashboard with tasks, nested subtasks, rollover markers, and parent-child completion cascade
+- Daily jottings timeline
+- PIN-gated client shell
+- Server-side data loading with dynamic rendering and no-store GitHub fetches
+- Markdown rendering with:
+  - GitHub-Flavored Markdown via `remark-gfm`
+  - Inline math via `$...$`
+  - Block math via `$$...$$`
+  - KaTeX styling loaded globally from `katex/dist/katex.min.css`
+
+## Markdown Math Support
+
+All `ReactMarkdown` renderers are configured with:
+
+```tsx
+remarkPlugins={[remarkGfm, remarkMath]}
+rehypePlugins={[[rehypeKatex, { strict: false, throwOnError: false, output: "html" }]]}
+```
+
+The `output: "html"` option forces KaTeX to emit visual HTML only, avoiding exposed trailing MathML/source text such as `{\displaystyle O(1)}` in compact prose contexts.
+
+Example content:
+
+```markdown
+Inline formula: $E = mc^2$
+
+Block formula:
+
+$$
+\int_{-\infty}^{\infty} e^{-x^2} dx = \sqrt{\pi}
+$$
+```
 
 ## Getting Started
 
-First, run the development server:
+Install dependencies:
+
+```bash
+npm install
+```
+
+Run the development server from this directory:
 
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Or from the repository root:
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```bash
+npm --prefix inspirations-farm-app run dev
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Open [http://localhost:3000](http://localhost:3000).
 
-## Learn More
+## Environment Variables
 
-To learn more about Next.js, take a look at the following resources:
+Create `inspirations-farm-app/.env.local` with the required values:
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```env
+GITHUB_PAT=your_github_token
+REPO_OWNER=your_github_owner_or_org
+REPO_NAME=your_vault_repo_name
+APP_PIN=your_pin
+CRON_SECRET=your_cron_secret
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+> **Important:** The development server writes through the same API routes as production. If `.env.local` points at your real GitHub vault, creating, editing, completing, or deleting items in local dev will update the real repository.
 
-## Deploy on Vercel
+## Common Commands
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+```bash
+npm run dev      # start local development server
+npm run build    # create a production build
+npm run start    # start the production server
+npm run lint     # run ESLint
+```
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+From the repository root, prefix commands with the app directory:
+
+```bash
+npm --prefix inspirations-farm-app run build
+```
+
+## Project Structure
+
+```text
+src/app/page.tsx                Server component shell
+src/app/home.tsx                Client shell with PIN lock
+src/app/dashboard-content.tsx   Server-side data loading and reconciliation
+src/app/daily-dashboard.tsx     Daily tasks UI and Markdown task text rendering
+src/app/inspiration-feed.tsx    Inspiration pool and patch rendering
+src/app/jottings-card.tsx       Daily jottings Markdown rendering
+src/app/globals.css             Tailwind, shadcn, animation, and KaTeX global CSS
+src/lib/github.ts               GitHub API client and Markdown parsing helpers
+src/lib/data.ts                 Server-side data layer
+src/lib/api.ts                  Client-side API wrapper with PIN header
+```
+
+## Verification
+
+After changing Markdown rendering or dependencies, run from the repository root:
+
+```bash
+npm --prefix inspirations-farm-app exec -- tsc -p inspirations-farm-app/tsconfig.json --noEmit
+npm --prefix inspirations-farm-app run build
+```
+
+To manually verify KaTeX rendering, add test Markdown in a safe test repository or a disposable entry:
+
+```markdown
+Inline: $O(1)$ and $\frac{a}{b}$
+
+$$
+\begin{pmatrix}
+1 & 2 \\
+3 & 4
+\end{pmatrix}
+$$
+```
+
+Confirm the formulas render visually and no raw trailing text such as `{\displaystyle ...}` appears after them.

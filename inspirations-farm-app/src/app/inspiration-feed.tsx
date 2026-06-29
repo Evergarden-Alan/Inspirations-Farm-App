@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import { Check, Trash2, Send, MessageSquarePlus, Loader2 } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import remarkMath from "remark-math";
+import rehypeKatex from "rehype-katex";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -555,7 +557,10 @@ function InspirationCard({
             prose-hr:my-1
             prose-blockquote:my-1 prose-blockquote:text-xs
             prose-table:text-xs prose-th:text-xs prose-td:text-xs">
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>
+            <ReactMarkdown
+              remarkPlugins={[remarkGfm, remarkMath]}
+              rehypePlugins={[[rehypeKatex, { strict: false, throwOnError: false, output: "html" }]]}
+            >
               {item.content}
             </ReactMarkdown>
           </div>
@@ -596,7 +601,10 @@ function InspirationCard({
                   prose-hr:my-1
                   prose-blockquote:my-1 prose-blockquote:text-xs
                 ">
-                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                  <ReactMarkdown
+              remarkPlugins={[remarkGfm, remarkMath]}
+              rehypePlugins={[[rehypeKatex, { strict: false, throwOnError: false, output: "html" }]]}
+            >
                     {patch.content}
                   </ReactMarkdown>
                 </div>

@@ -4,6 +4,8 @@ import { useEffect, useState, useCallback, useRef } from "react";
 import { Plus, Loader2, Circle, CheckCircle2, CornerDownRight, Check } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import remarkMath from "remark-math";
+import rehypeKatex from "rehype-katex";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -342,12 +344,13 @@ export function DailyDashboard({ initialDaily }: DailyDashboardProps = {}) {
                         }`}
                       >
                         <ReactMarkdown
-                          remarkPlugins={[remarkGfm]}
+                          remarkPlugins={[remarkGfm, remarkMath]}
+                          rehypePlugins={[[rehypeKatex, { strict: false, throwOnError: false, output: "html" }]]}
                           components={{
-                            p: ({node, ...props}) => (
+                            p: ({ ...props}) => (
                               <span className="inline" {...props} />
                             ),
-                            a: ({node, ...props}) => (
+                            a: ({ ...props}) => (
                               <a
                                 className="text-blue-500 hover:underline"
                                 target="_blank"
