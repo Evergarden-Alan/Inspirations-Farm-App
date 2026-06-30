@@ -11,9 +11,9 @@ A mobile-first PWA personal inspiration management system. GitHub-backed headles
 | Framework | Next.js 16 (App Router) |
 | Language | TypeScript |
 | UI | React 19 + Tailwind CSS v4 |
-| Components | shadcn/ui (new-york) |
+| Components | shadcn/ui (base-nova) + Base UI React primitives |
 | Icons | lucide-react |
-| Markdown | gray-matter (frontmatter parsing) |
+| Markdown | gray-matter (frontmatter) + `react-markdown` + `remark-gfm` + `remark-math` + `rehype-katex` (KaTeX) |
 | Backend/CMS | GitHub REST API (Markdown files) |
 | Auth | PIN lock screen + Cron secret |
 | PWA | manifest + service worker (production only) |
@@ -34,6 +34,8 @@ A mobile-first PWA personal inspiration management system. GitHub-backed headles
 - **🏷️ Rollover Badge** — tasks carried over from yesterday render a `延期` badge (`bg-amber-100 text-amber-700`), visually distinguishing legacy items from today's new tasks
 - **📝 Inspiration Patches** — append timestamped follow-up notes to inspirations via `## 追加记录` markdown section
 - **📄 Rich Markdown Rendering** — `react-markdown` + `remark-gfm` + `@tailwindcss/typography`; prose styles for inspiration cards & jottings; inline-safe rendering for todo tasks (no prose, `<p>`→`<span>`, keeps flex layout)
+- **🧮 Math Rendering** — inline `$...$` and block `$$...$$` via `remark-math` + `rehype-katex`; KaTeX CSS imported globally (`globals.css`); `output: "html"` prevents exposed MathML/source text like `{\displaystyle ...}`
+- **🗒️ Daily Jottings** — timestamped notes appended to `## 今日杂记` under `# 本日总结`; rendered as a timeline on the dashboard
 - **📋 Template Support** — `Templates/Diary_Template.md` fetched from GitHub at rollover time; supports `{{date}}` / `{{DATE:YYYY-MM-DD}}` and `%%TODO_PLACEHOLDER%%` placeholders; path configurable via `DIARY_TEMPLATE_PATH` env var; falls back to built-in template on fetch failure
 - **📱 PWA** — install to home screen, offline cache, standalone mode
 - **📂 Headless CMS** — all data in your private GitHub repo as plain Markdown
@@ -52,22 +54,27 @@ Inspirations_Farm/
     ├── src/
     │   ├── app/
     │   │   ├── api/
-    │   │   │   ├── github/route.ts       # Inspirations CRUD + archive
-    │   │   │   ├── daily/route.ts        # Daily journal + push-to-daily
+    │   │   │   ├── github/route.ts       # Inspirations CRUD + archive + patches + syncIdeas
+    │   │   │   ├── daily/route.ts        # Daily journal + push-to-daily + jottings
     │   │   │   └── cron/rollover/route.ts # Rollover endpoint
     │   │   ├── layout.tsx                # PWA meta + SW registration (prod only)
-    │   │   ├── page.tsx                  # Auth gate + two-column grid
+    │   │   ├── page.tsx                  # Server Component shell (force-dynamic) + Suspense
+    │   │   ├── home.tsx                  # Client shell: PIN lock overlay + sticky header
+    │   │   ├── dashboard-content.tsx     # Async Server Component: fetch + reconciliation
+    │   │   ├── dashboard-skeleton.tsx    # Suspense fallback (animate-pulse)
     │   │   ├── lock-screen.tsx           # PIN unlock
     │   │   ├── inspiration-feed.tsx      # Capture + timeline + push button
     │   │   ├── daily-dashboard.tsx       # Nested tasks + cascade + archive
+    │   │   ├── jottings-card.tsx         # Daily jottings timeline + add-note
     │   │   └── manifest.ts               # → /manifest.webmanifest
-    │   ├── components/ui/                # shadcn/ui
+    │   ├── components/ui/                # shadcn/ui (base-nova)
     │   └── lib/
     │       ├── github.ts                 # GitHub API client + markdown parsing
+    │       ├── data.ts                   # Server data layer: getTodos/getInspirations/syncCompletedIdeas
     │       ├── beijing-time.ts           # Asia/Shanghai date utilities
     │       ├── time.ts                   # Survival duration + Beijing-time parser
     │       ├── cascade.ts               # Nested task toggle cascade
-    │       ├── rollover.ts              # Daily undone-task migration
+    │       ├── rollover.ts              # Daily undone-task migration (tree split + merge)
     │       ├── auth.ts                   # Server-side PIN validation
     │       ├── api.ts                    # Client fetch wrapper (PIN + 401 handler)
     │       └── utils.ts                  # cn() utility
@@ -129,6 +136,7 @@ All endpoints require `x-app-pin` header (unless `APP_PIN` is unset).
 |---|---|---|
 | GET | — | List active inspirations (with `id`, `title`, `content`, `patches`) |
 | POST | `{ content, priority?, tags? }` | Create inspiration (`Inspirations/YYYY-MM-DD-HHmmss.md`) |
+| POST | `{ action: "syncIdeas", ideaIds: string[] }` | Batch-archive inspirations (Obsidian-side reconciliation; idempotent — skips already-completed) |
 | PATCH | `{ path, content }` | Append timestamped patch to `## 追加记录` section |
 | PUT | `{ path, sha, status }` or `{ ideaId, status }` | Update status or archive by ideaId |
 | DELETE | `{ path, sha }` | Delete inspiration |
@@ -137,9 +145,10 @@ All endpoints require `x-app-pin` header (unless `APP_PIN` is unset).
 
 | Method | Body | Description |
 |---|---|---|
-| GET | `?date=YYYY-MM-DD` | Get daily journal with parsed tasks |
+| GET | `?date=YYYY-MM-DD` | Get daily journal with parsed tasks + notes |
 | POST | `{ date }` | Create daily journal |
-| POST | `{ ideaId, ideaTitle, date }` | Push inspiration into today's tasks |
+| POST | `{ ideaId, ideaTitle, date }` | Push inspiration into today's tasks (dedup: `409` if `ideaId` already present) |
+| POST | `{ action: "addNote", date, content }` | Append timestamped note to `## 今日杂记` section |
 | PUT | `{ path, sha, content }` | Update journal content |
 
 ### /api/cron/rollover
@@ -219,12 +228,28 @@ date: 2026-06-19
 
 ---
 # 本日总结
+
+## 今日杂记
+
+- **14:30** Quick thought captured during the day
+```
+
+**Math syntax** — works in inspiration content, patches, jottings, and task text:
+```markdown
+Inline: $E = mc^2$
+
+Block:
+$$
+\int_{-\infty}^{\infty} e^{-x^2} dx = \sqrt{\pi}
+$$
 ```
 
 **Rollover behavior**: at Beijing 00:01 each day, the cron job reads **yesterday's** journal and builds a **task tree** from the `# 当日日程` section (handles `[x]`, `[ ]`, `[>]` markers at arbitrary nesting depth). The tree is then split recursively:
 - **Fully done** subtrees (parent `[x]` + all descendants `[x]`) stay in yesterday as-is.
 - **Partially complete** subtrees are split: done portions remain in yesterday (parent `[>]`, children `[x]`), undone portions are migrated to today (parent `[ ]`, children `[ ]`) with nesting preserved.
 - Migrated tasks get a `🔄` suffix so the frontend renders an amber "延期" badge — no raw emoji visible to the user. Double-stacking is prevented.
+
+**Merge when target exists**: if today's journal already exists, incoming migrated tasks are merged into its `# 当日日程` section instead of bulk-appended. When an incoming top-level task's normalized text (with `🔄` stripped) matches an existing top-level task, its descendants are appended under the existing root — e.g. a rolled-over `数学 🔄` merges its subtasks under an already-present `数学` rather than creating a duplicate. Unmatched top-level tasks (and leaf roots that would self-nest) are appended at the end of the section as new roots. Indentation is preserved as-is.
 
 When today's journal doesn't exist yet, the rollover **fetches the Obsidian template** from `Templates/Diary_Template.md` on GitHub (path configurable via `DIARY_TEMPLATE_PATH`). It replaces `{{date}}` / `{{DATE:YYYY-MM-DD}}` with the target date and injects undone tasks at `%%TODO_PLACEHOLDER%%`. If the placeholder isn't found, tasks are appended after `## 当日日程`. If the template fetch fails, a built-in fallback template is used — the script never crashes on a missing template file.
 

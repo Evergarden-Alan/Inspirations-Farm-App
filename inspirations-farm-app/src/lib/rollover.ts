@@ -53,6 +53,11 @@ interface TaskNode {
 const TASK_LINE_RE = /^(\s*)-\s*\[([ xX>])\]\s+(.*)$/;
 const SECTION_HEADING_RE = /^#\s+当日日程\s*$/;
 
+/** Normalize mixed tab/space indentation to a depth number (1 tab = 2 spaces). */
+function indentDepth(indent: string): number {
+  return indent.replace(/\t/g, "  ").length;
+}
+
 // ── Section Extraction ────────────────────────────────────
 
 /** Extract lines belonging to the # 当日日程 section (between heading and next --- or # ). */
@@ -103,9 +108,6 @@ function parseTaskTree(lines: string[]): TaskNode[] {
   const roots: TaskNode[] = [];
   const stack: TaskNode[] = [];
 
-  // Normalise mixed tab+space indentation: each tab → 2 spaces
-  const depth = (indent: string) => indent.replace(/\t/g, "  ").length;
-
   for (const line of lines) {
     const match = line.match(TASK_LINE_RE);
     if (!match) continue;
@@ -120,8 +122,8 @@ function parseTaskTree(lines: string[]): TaskNode[] {
     const node: TaskNode = { indent, status, text, raw, children: [] };
 
     // Pop stack until we find a node with less indent → that's our parent
-    const currentDepth = depth(indent);
-    while (stack.length > 0 && depth(stack[stack.length - 1].indent) >= currentDepth) {
+    const currentDepth = indentDepth(indent);
+    while (stack.length > 0 && indentDepth(stack[stack.length - 1].indent) >= currentDepth) {
       stack.pop();
     }
 
@@ -292,6 +294,133 @@ function insertIntoSection(content: string, lines: string[]): string {
   }
 
   allLines.splice(insertAt, 0, ...lines);
+  return allLines.join("\n");
+}
+
+// ── Section Merge (target-exists path) ───────────────────
+
+/** Normalize task text for header matching: trim and strip the 🔄 rollover marker. */
+function normalizeTaskText(text: string): string {
+  return text.replace(/🔄/g, "").trim();
+}
+
+/**
+ * Merge incoming task lines into the target's # 当日日程 section.
+ *
+ * When the target already has a top-level task whose normalized text matches an
+ * incoming top-level task, the incoming task's descendants are appended under
+ * the existing top-level task instead of creating a duplicate root (e.g. a
+ * rolled-over "数学 🔄" merges under an existing "数学"). Incoming top-level
+ * tasks with no match — or leaf roots that would self-nest under a same-named
+ * top-level task — are appended at the end of the section as new roots.
+ *
+ * Indentation of incoming lines is preserved as-is (consistent with the prior
+ * append-only behavior); source and target are expected to share an indent
+ * convention.
+ */
+function mergeIntoSection(content: string, incoming: string[]): string {
+  const allLines = content.split("\n");
+
+  // Locate # 当日日程 section heading
+  let sectionStart = -1;
+  for (let i = 0; i < allLines.length; i++) {
+    if (SECTION_HEADING_RE.test(allLines[i])) {
+      sectionStart = i;
+      break;
+    }
+  }
+  if (sectionStart === -1) {
+    // No section heading — append to end (matches insertIntoSection fallback)
+    return content.trimEnd() + "\n" + incoming.join("\n") + "\n";
+  }
+
+  // Find section end — next "---" or "# " after sectionStart
+  let sectionEnd = allLines.length;
+  for (let i = sectionStart + 1; i < allLines.length; i++) {
+    const t = allLines[i].trim();
+    if (t === "---" || /^#\s/.test(t)) {
+      sectionEnd = i;
+      break;
+    }
+  }
+
+  // Top-level indent = minimal indent among task lines in the section
+  let topDepth = Infinity;
+  for (let i = sectionStart + 1; i < sectionEnd; i++) {
+    const m = allLines[i].match(TASK_LINE_RE);
+    if (!m) continue;
+    const d = indentDepth(m[1]);
+    if (d < topDepth) topDepth = d;
+  }
+
+  // Map: normalized header text → last task line index of that top-level block.
+  // Prefer the non-🔄 original block over a pre-existing 🔄 rollover block:
+  // both normalize to the same key, so only set the 🔄 block when no original
+  // exists yet. This keeps merges landing under the genuine original task
+  // even after a prior (already-rolled-over) version of the same task is present.
+  const blockEndByHeader = new Map<string, number>();
+  const blockHasMarker = new Map<string, boolean>();
+  if (topDepth !== Infinity) {
+    for (let i = sectionStart + 1; i < sectionEnd; i++) {
+      const m = allLines[i].match(TASK_LINE_RE);
+      if (!m || indentDepth(m[1]) !== topDepth) continue; // not a top-level task
+      // Walk forward to find the last task line belonging to this block
+      let blockEnd = i;
+      for (let j = i + 1; j < sectionEnd; j++) {
+        const mj = allLines[j].match(TASK_LINE_RE);
+        if (!mj) continue; // skip non-task lines (placeholders, blanks)
+        if (indentDepth(mj[1]) <= topDepth) break; // next top-level task
+        blockEnd = j;
+      }
+      const key = normalizeTaskText(m[3]);
+      const isMarker = m[3].includes("🔄");
+      const prevMarker = blockHasMarker.get(key) ?? false;
+      // Set if: no entry yet, OR current block is non-🔄 but stored one is a 🔄 block.
+      if (!blockEndByHeader.has(key) || (!isMarker && prevMarker)) {
+        blockEndByHeader.set(key, blockEnd);
+        blockHasMarker.set(key, isMarker);
+      }
+    }
+  }
+
+  // Parse incoming into top-level groups (roots)
+  const roots = parseTaskTree(incoming);
+
+  // Build insert operations + tail-append list
+  const ops: { at: number; lines: string[] }[] = [];
+  const append: string[] = [];
+
+  for (const root of roots) {
+    const key = normalizeTaskText(root.text);
+    const descendants: string[] = [];
+    for (const child of root.children) {
+      descendants.push(...flattenTree(child));
+    }
+
+    if (blockEndByHeader.has(key) && descendants.length > 0) {
+      // Merge descendants under the existing same-named top-level task
+      ops.push({ at: blockEndByHeader.get(key)! + 1, lines: descendants });
+    } else {
+      // No match, or leaf root that would self-nest — append whole tree as new root
+      append.push(...flattenTree(root));
+    }
+  }
+
+  // Tail-append point: end of section, backing up over blank lines
+  let appendAt = sectionEnd;
+  while (appendAt > sectionStart + 1 && allLines[appendAt - 1].trim() === "") {
+    appendAt--;
+  }
+  if (append.length > 0) {
+    ops.push({ at: appendAt, lines: append });
+  }
+
+  // Apply ops in descending order of `at` to keep earlier indices stable
+  ops.sort((a, b) => b.at - a.at);
+  for (const op of ops) {
+    allLines.splice(op.at, 0, ...op.lines);
+  }
+
   return allLines.join("\n");
 }
 
@@ -475,9 +604,9 @@ export async function executeRollover(
       };
     }
 
-    // Target exists — append tomorrowLines to its # 当日日程 section
+    // Target exists — merge tomorrowLines into its # 当日日程 section
     log(`Target journal exists: path=${targetJournal.path} sha=${targetJournal.sha}`);
-    targetContent = insertIntoSection(targetJournal.content!, tomorrowLines);
+    targetContent = mergeIntoSection(targetJournal.content!, tomorrowLines);
     targetPath = targetJournal.path!;
     const targetSha = targetJournal.sha!;
 
