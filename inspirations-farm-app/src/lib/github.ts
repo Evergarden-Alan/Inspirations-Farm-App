@@ -24,6 +24,41 @@ function getConfig() {
   return { pat, owner, repo };
 }
 
+/** Error thrown when a GitHub write conflicts (HTTP 409) — the file's blob SHA
+ *  changed between our GET and PUT. Callers can catch this and retry. */
+export class GitHubConflictError extends Error {
+  status = 409;
+  constructor(message: string) {
+    super(message);
+    this.name = "GitHubConflictError";
+  }
+}
+
+/** Retry a write operation on HTTP 409 (stale SHA). The operation `fn` must
+ *  re-GET the fresh SHA + content internally before its PUT, so a retry picks up
+ *  the latest SHA. The optional `initialSha` is passed to `fn` on the first
+ *  attempt (callers that already hold a SHA); subsequent attempts use the SHA
+ *  fetched inside `fn`. Max 2 attempts. */
+async function withConflictRetry<T>(
+  fn: (currentSha?: string) => Promise<T>,
+  initialSha?: string
+): Promise<T> {
+  let lastErr: unknown;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      return await fn(attempt === 0 ? initialSha : undefined);
+    } catch (err: unknown) {
+      lastErr = err;
+      if (err instanceof GitHubConflictError) {
+        // Stale SHA — retry; fn will re-GET the fresh SHA.
+        continue;
+      }
+      throw err;
+    }
+  }
+  throw lastErr;
+}
+
 async function githubFetch<T = unknown>(
   path: string,
   options: RequestInit = {}
@@ -44,12 +79,27 @@ async function githubFetch<T = unknown>(
 
   if (!res.ok) {
     const body = await res.text();
+    // 409 = stale SHA (someone wrote between our GET and PUT). Surface as a
+    // typed error so callers can re-fetch the SHA and retry the write.
+    if (res.status === 409) {
+      throw new GitHubConflictError(
+        `GitHub API error 409: ${body.slice(0, 500)}`
+      );
+    }
     throw new Error(
       `GitHub API error ${res.status}: ${body.slice(0, 500)}`
     );
   }
 
   return res.json() as Promise<T>;
+}
+
+/** Normalise a frontmatter `date` value to YYYY-MM-DD. Accepts ISO strings
+ *  (e.g. "2026-06-08T17:15:00") and plain dates ("2026-06-26"). Falls back to
+ *  the raw string if it doesn't look like a date. */
+function normalizeDateString(value: string): string {
+  const match = value.match(/^(\d{4}-\d{2}-\d{2})/);
+  return match ? match[1] : value;
 }
 
 // ── Types ──────────────────────────────────────────────
@@ -201,10 +251,10 @@ export function parseInspirationPatches(
 ): { content: string; patches: InspirationPatch[] } {
   const lines = body.split("\n");
 
-  // Find ## 追加记录 as a whole line
+  // Find ## 追加记录 as a whole line (any heading level #)
   let headingLine = -1;
   for (let i = 0; i < lines.length; i++) {
-    if (/^##\s+追加记录\s*$/.test(lines[i])) {
+    if (/^#+\s+追加记录\s*$/.test(lines[i])) {
       headingLine = i;
       break;
     }
@@ -324,69 +374,79 @@ export async function deleteFile(
 /** Update the status field in a file's YAML frontmatter */
 export async function updateFileStatus(
   filePath: string,
-  sha: string,
+  _sha: string,
   newStatus: string
 ): Promise<{ path: string; url: string }> {
-  const { owner, repo } = getConfig();
+  return withConflictRetry(async () => {
+    const { owner, repo } = getConfig();
 
-  // Fetch current content
-  const raw = await getFileContent(filePath);
-
-  // Replace the status line in YAML frontmatter
-  const updated = raw.replace(
-    /^status:\s*.*$/m,
-    `status: ${newStatus}`
-  );
-
-  const encoded = Buffer.from(updated, "utf-8").toString("base64");
-
-  const result = await githubFetch<{ content: { path: string; html_url: string } }>(
-    `/repos/${owner}/${repo}/contents/${filePath}`,
-    {
-      method: "PUT",
-      body: JSON.stringify({
-        message: `Update status to ${newStatus}`,
-        content: encoded,
-        sha,
-      }),
-      headers: { "Content-Type": "application/json" },
+    // Fetch current content + fresh SHA (the passed sha may be stale).
+    const data = await githubFetch<{
+      sha: string;
+      content: string;
+      encoding: string;
+    }>(`/repos/${owner}/${repo}/contents/${filePath}`);
+    if (data.encoding !== "base64") {
+      throw new Error(`Unexpected encoding: ${data.encoding}`);
     }
-  );
+    const raw = Buffer.from(data.content, "base64").toString("utf-8");
 
-  return { path: result.content.path, url: result.content.html_url };
+    // Replace the status line in YAML frontmatter
+    const updated = raw.replace(
+      /^status:\s*.*$/m,
+      `status: ${newStatus}`
+    );
+    const encoded = Buffer.from(updated, "utf-8").toString("base64");
+
+    const result = await githubFetch<{ content: { path: string; html_url: string } }>(
+      `/repos/${owner}/${repo}/contents/${filePath}`,
+      {
+        method: "PUT",
+        body: JSON.stringify({
+          message: `Update status to ${newStatus}`,
+          content: encoded,
+          sha: data.sha,
+        }),
+        headers: { "Content-Type": "application/json" },
+      }
+    );
+
+    return { path: result.content.path, url: result.content.html_url };
+  });
 }
 
 // ── Archive inspiration ────────────────────────────────
 
 /** Set an inspiration's status to completed by file path */
 export async function archiveInspiration(filePath: string): Promise<void> {
-  const { owner, repo } = getConfig();
+  return withConflictRetry(async () => {
+    const { owner, repo } = getConfig();
 
-  // Get current content + sha
-  const data = await githubFetch<{
-    sha: string;
-    content: string;
-    encoding: string;
-  }>(`/repos/${owner}/${repo}/contents/${filePath}`);
+    // Get current content + sha
+    const data = await githubFetch<{
+      sha: string;
+      content: string;
+      encoding: string;
+    }>(`/repos/${owner}/${repo}/contents/${filePath}`);
 
-  if (data.encoding !== "base64") {
-    throw new Error(`Unexpected encoding: ${data.encoding}`);
-  }
-  const raw = Buffer.from(data.content, "base64").toString("utf-8");
+    if (data.encoding !== "base64") {
+      throw new Error(`Unexpected encoding: ${data.encoding}`);
+    }
+    const raw = Buffer.from(data.content, "base64").toString("utf-8");
 
-  // Replace status to completed
-  const updated = raw.replace(/^status:\s*.*$/m, "status: completed");
+    // Replace status to completed
+    const updated = raw.replace(/^status:\s*.*$/m, "status: completed");
+    const encoded = Buffer.from(updated, "utf-8").toString("base64");
 
-  const encoded = Buffer.from(updated, "utf-8").toString("base64");
-
-  await githubFetch(`/repos/${owner}/${repo}/contents/${filePath}`, {
-    method: "PUT",
-    body: JSON.stringify({
-      message: `Archive inspiration`,
-      content: encoded,
-      sha: data.sha,
-    }),
-    headers: { "Content-Type": "application/json" },
+    await githubFetch(`/repos/${owner}/${repo}/contents/${filePath}`, {
+      method: "PUT",
+      body: JSON.stringify({
+        message: `Archive inspiration`,
+        content: encoded,
+        sha: data.sha,
+      }),
+      headers: { "Content-Type": "application/json" },
+    });
   });
 }
 
@@ -408,36 +468,37 @@ export async function syncIdeasState(
 
   // Process sequentially to avoid race conditions on the same repo
   for (const id of ideaIds) {
+    const filePath = `Inspirations/${id}.md`;
     try {
-      const filePath = `Inspirations/${id}.md`;
-      const data = await githubFetch<{
-        sha: string;
-        content: string;
-        encoding: string;
-      }>(`/repos/${owner}/${repo}/contents/${filePath}`);
+      await withConflictRetry(async () => {
+        const data = await githubFetch<{
+          sha: string;
+          content: string;
+          encoding: string;
+        }>(`/repos/${owner}/${repo}/contents/${filePath}`);
 
-      if (data.encoding !== "base64") {
-        errors.push(`${id}: unexpected encoding ${data.encoding}`);
-        continue;
-      }
-      const raw = Buffer.from(data.content, "base64").toString("utf-8");
+        if (data.encoding !== "base64") {
+          throw new Error(`unexpected encoding ${data.encoding}`);
+        }
+        const raw = Buffer.from(data.content, "base64").toString("utf-8");
 
-      // Skip if already completed (idempotent)
-      if (/^status:\s*completed\s*$/m.test(raw)) {
-        continue;
-      }
+        // Skip if already completed (idempotent)
+        if (/^status:\s*completed\s*$/m.test(raw)) {
+          return;
+        }
 
-      const updated = raw.replace(/^status:\s*.*$/m, "status: completed");
-      const encoded = Buffer.from(updated, "utf-8").toString("base64");
+        const updated = raw.replace(/^status:\s*.*$/m, "status: completed");
+        const encoded = Buffer.from(updated, "utf-8").toString("base64");
 
-      await githubFetch(`/repos/${owner}/${repo}/contents/${filePath}`, {
-        method: "PUT",
-        body: JSON.stringify({
-          message: `Auto-sync: mark inspiration as completed`,
-          content: encoded,
-          sha: data.sha,
-        }),
-        headers: { "Content-Type": "application/json" },
+        await githubFetch(`/repos/${owner}/${repo}/contents/${filePath}`, {
+          method: "PUT",
+          body: JSON.stringify({
+            message: `Auto-sync: mark inspiration as completed`,
+            content: encoded,
+            sha: data.sha,
+          }),
+          headers: { "Content-Type": "application/json" },
+        });
       });
 
       synced++;
@@ -488,10 +549,10 @@ export async function appendInspirationPatch(
   let updated: string;
   const lines = raw.split("\n");
 
-  // Find ## 追加记录 section
+  // Find ## 追加记录 section (any heading level #)
   let headingLine = -1;
   for (let i = 0; i < lines.length; i++) {
-    if (/^##\s+追加记录\s*$/.test(lines[i])) {
+    if (/^#+\s+追加记录\s*$/.test(lines[i])) {
       headingLine = i;
       break;
     }
@@ -570,7 +631,8 @@ function calcIndent(ws: string): { level: number; raw: string } {
   // Normalise tabs to 2 spaces so mixed whitespace (e.g. \t + spaces) is
   // handled correctly.  Then every 2 spaces = 1 indent level.
   const normalised = ws.replace(/\t/g, "  ");
-  return { level: Math.floor(normalised.length / 2), raw: ws };
+  // Round (not floor) so odd-space indents (3 spaces) don't drop a level.
+  return { level: Math.round(normalised.length / 2), raw: ws };
 }
 
 export function parseTasks(markdown: string): DailyTask[] {
@@ -579,7 +641,8 @@ export function parseTasks(markdown: string): DailyTask[] {
   let id = 0;
   for (let lineNum = 0; lineNum < lines.length; lineNum++) {
     const line = lines[lineNum];
-    const match = line.match(/^(\s*)-\s*\[([ xX])\]\s+(.*)$/);
+    // [ ] | [x] | [>] — '>' marks partially-done rollover tasks (kept as undone).
+    const match = line.match(/^(\s*)-\s*\[([ xX>])\]\s+(.*)$/);
     if (match) {
       const { level, raw } = calcIndent(match[1]);
       const rawText = match[3].trim();
@@ -648,7 +711,9 @@ export async function getDailyJournal(date: string): Promise<DailyJournal> {
       path: filePath,
       sha: data.sha,
       content: raw,
-      date: String(frontmatter.date ?? date),
+      // Normalise to YYYY-MM-DD: frontmatter date may be ISO (2026-06-08T17:15:00)
+      // or a plain date string. Take the first 10 chars when it looks like a date.
+      date: normalizeDateString(String(frontmatter.date ?? date)),
       tasks,
       notes: parseDailyNotes(raw),
     };
@@ -812,7 +877,7 @@ export function insertIntoDailySection(
   // Locate section start
   let sectionStart = -1;
   for (let i = 0; i < lines.length; i++) {
-    if (/^#\s+当日日程\s*$/.test(lines[i])) {
+    if (/^#+\s+当日日程\s*$/.test(lines[i])) {
       sectionStart = i;
       break;
     }
@@ -854,10 +919,10 @@ export interface DailyNote {
 export function parseDailyNotes(content: string): DailyNote[] {
   const lines = content.split("\n");
 
-  // Locate ## 今日杂记
+  // Locate ## 今日杂记 (any heading level #)
   let sectionStart = -1;
   for (let i = 0; i < lines.length; i++) {
-    if (/^##\s+今日杂记\s*$/.test(lines[i])) {
+    if (/^#+\s+今日杂记\s*$/.test(lines[i])) {
       sectionStart = i;
       break;
     }
@@ -897,20 +962,20 @@ export function insertIntoDailyNotesSection(
   const lines = content.split("\n");
   const noteLine = `- **${time}** ${noteText}`;
 
-  // 1) Try to find ## 今日杂记
+  // 1) Try to find ## 今日杂记 (any heading level #)
   let sectionStart = -1;
   for (let i = 0; i < lines.length; i++) {
-    if (/^##\s+今日杂记\s*$/.test(lines[i])) {
+    if (/^#+\s+今日杂记\s*$/.test(lines[i])) {
       sectionStart = i;
       break;
     }
   }
 
   if (sectionStart === -1) {
-    // Create the section after # 本日总结
+    // Create the section after # 本日总结 (any heading level #)
     let summaryIdx = -1;
     for (let i = 0; i < lines.length; i++) {
-      if (/^#\s+本日总结\s*$/.test(lines[i])) {
+      if (/^#+\s+本日总结\s*$/.test(lines[i])) {
         summaryIdx = i;
         break;
       }

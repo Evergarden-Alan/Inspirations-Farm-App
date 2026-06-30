@@ -5,7 +5,7 @@
  * avoiding false matches from String.replace when tasks share the same text.
  */
 
-const TASK_RE = /^(\s*)-\s*\[([ xX])\]\s+(.*)$/;
+const TASK_RE = /^(\s*)-\s*\[([ xX>])\]\s+(.*)$/;
 
 /** Count leading whitespace — normalise tabs to 2 spaces for consistent depth. */
 function countIndent(line: string): number {

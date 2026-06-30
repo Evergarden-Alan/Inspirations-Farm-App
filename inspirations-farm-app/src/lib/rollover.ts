@@ -51,7 +51,7 @@ interface TaskNode {
 
 // Matches lines like "  - [x] Buy groceries" or "    - [>] Old task"
 const TASK_LINE_RE = /^(\s*)-\s*\[([ xX>])\]\s+(.*)$/;
-const SECTION_HEADING_RE = /^#\s+当日日程\s*$/;
+const SECTION_HEADING_RE = /^#+\s+当日日程\s*$/;
 
 /** Normalize mixed tab/space indentation to a depth number (1 tab = 2 spaces). */
 function indentDepth(indent: string): number {
@@ -81,11 +81,11 @@ function extractSectionLines(content: string): {
     return { before: lines, sectionLines: [], after: [], headingIdx: -1 };
   }
 
-  // Find section end — next "---" or "# " after headingIdx
+  // Find section end — next "---" or any heading ("# ...") after headingIdx
   let sectionEnd = lines.length;
   for (let i = headingIdx + 1; i < lines.length; i++) {
     const t = lines[i].trim();
-    if (t === "---" || /^#\s/.test(t)) {
+    if (t === "---" || /^#+\s/.test(t)) {
       sectionEnd = i;
       break;
     }
@@ -178,8 +178,9 @@ function splitNode(node: TaskNode): {
   count: number;
 } {
   if (isFullyDone(node)) {
-    // Entire subtree is done — keep everything in yesterday as-is
-    return { y: flattenTree(node), t: [], count: 0 };
+    // Entire subtree is done — keep everything in yesterday, but strip any stale
+    // 🔄 markers: a fully-done task should never carry the "延期" badge.
+    return { y: flattenTree(node).map(stripRolloverMarker), t: [], count: 0 };
   }
 
   // Partially complete — must split
@@ -198,8 +199,8 @@ function splitNode(node: TaskNode): {
 
   for (const child of node.children) {
     if (isFullyDone(child)) {
-      // Done child → keep entirely in yesterday
-      y.push(...flattenTree(child));
+      // Done child → keep entirely in yesterday, strip stale 🔄
+      y.push(...flattenTree(child).map(stripRolloverMarker));
     } else if (child.status === "x") {
       // Child itself is [x] but has undone descendants → split recursively
       // (this handles the case where a checked parent has unchecked grandchildren)
@@ -277,11 +278,11 @@ function insertIntoSection(content: string, lines: string[]): string {
     return content.trimEnd() + "\n" + lines.join("\n") + "\n";
   }
 
-  // Find section end — next "---" or "# " after sectionStart
+  // Find section end — next "---" or any heading ("# ...") after sectionStart
   let sectionEnd = allLines.length;
   for (let i = sectionStart + 1; i < allLines.length; i++) {
     const t = allLines[i].trim();
-    if (t === "---" || /^#\s/.test(t)) {
+    if (t === "---" || /^#+\s/.test(t)) {
       sectionEnd = i;
       break;
     }
@@ -302,6 +303,39 @@ function insertIntoSection(content: string, lines: string[]): string {
 /** Normalize task text for header matching: trim and strip the 🔄 rollover marker. */
 function normalizeTaskText(text: string): string {
   return text.replace(/🔄/g, "").trim();
+}
+
+/** Strip any 🔄 rollover marker (and surrounding whitespace) from a task line.
+ *  Used on fully-done lines that still carry a stale 🔄 from a prior rollover — a
+ *  completed task should never display the "延期" badge. */
+function stripRolloverMarker(line: string): string {
+  return line.replace(/\s*🔄\s*/g, " ").replace(/\s+$/, "");
+}
+
+/** Remove stale `%%TODO_PLACEHOLDER%%` markers that survive when a journal was
+ *  created from the template (placeholder never expanded) and later receives a
+ *  rollover merge. Drops the whole line if it is only the placeholder; otherwise
+ *  removes the token inline. */
+function stripStalePlaceholder(content: string): string {
+  return content
+    .split("\n")
+    .filter((line) => line.trim() !== "%%TODO_PLACEHOLDER%%")
+    .map((line) => line.replace(/%%TODO_PLACEHOLDER%%/g, ""))
+    .join("\n");
+}
+
+/** Find the start index of the top-level task block whose last task line is
+ *  `blockEnd`. Walks backward until a task line at `topDepth` is found. */
+function findBlockStart(
+  allLines: string[],
+  blockEnd: number,
+  topDepth: number
+): number {
+  for (let i = blockEnd; i >= 0; i--) {
+    const m = allLines[i].match(TASK_LINE_RE);
+    if (m && indentDepth(m[1]) === topDepth) return i;
+  }
+  return blockEnd;
 }
 
 /**
@@ -334,11 +368,11 @@ function mergeIntoSection(content: string, incoming: string[]): string {
     return content.trimEnd() + "\n" + incoming.join("\n") + "\n";
   }
 
-  // Find section end — next "---" or "# " after sectionStart
+  // Find section end — next "---" or any heading ("# ...") after sectionStart
   let sectionEnd = allLines.length;
   for (let i = sectionStart + 1; i < allLines.length; i++) {
     const t = allLines[i].trim();
-    if (t === "---" || /^#\s/.test(t)) {
+    if (t === "---" || /^#+\s/.test(t)) {
       sectionEnd = i;
       break;
     }
@@ -392,14 +426,31 @@ function mergeIntoSection(content: string, incoming: string[]): string {
 
   for (const root of roots) {
     const key = normalizeTaskText(root.text);
-    const descendants: string[] = [];
+    let descendants: string[] = [];
     for (const child of root.children) {
       descendants.push(...flattenTree(child));
     }
 
     if (blockEndByHeader.has(key) && descendants.length > 0) {
-      // Merge descendants under the existing same-named top-level task
-      ops.push({ at: blockEndByHeader.get(key)! + 1, lines: descendants });
+      // Merge descendants under the existing same-named top-level task.
+      // Dedup against subtasks already present in that block (normalized, 🔄
+      // stripped) so re-running rollover on a still-`[>]` source doesn't
+      // duplicate previously-migrated lines.
+      const blockEnd = blockEndByHeader.get(key)!;
+      const blockStart = findBlockStart(allLines, blockEnd, topDepth);
+      const existing = new Set<string>();
+      for (let i = blockStart; i <= blockEnd; i++) {
+        const m = allLines[i].match(TASK_LINE_RE);
+        if (m) existing.add(normalizeTaskText(m[3]));
+      }
+      descendants = descendants.filter((line) => {
+        const m = line.match(TASK_LINE_RE);
+        return !m || !existing.has(normalizeTaskText(m[3]));
+      });
+
+      if (descendants.length > 0) {
+        ops.push({ at: blockEnd + 1, lines: descendants });
+      }
     } else {
       // No match, or leaf root that would self-nest — append whole tree as new root
       append.push(...flattenTree(root));
@@ -577,6 +628,10 @@ export async function executeRollover(
         );
       }
 
+      // Clean any placeholder tokens that survived (multiple placeholders, or a
+      // template that had the literal %%TODO_PLACEHOLDER%% left over).
+      targetContent = stripStalePlaceholder(targetContent);
+
       if (dryRun) {
         log("━━━ DRY RUN: would create target ━━━");
         console.log(
@@ -607,6 +662,8 @@ export async function executeRollover(
     // Target exists — merge tomorrowLines into its # 当日日程 section
     log(`Target journal exists: path=${targetJournal.path} sha=${targetJournal.sha}`);
     targetContent = mergeIntoSection(targetJournal.content!, tomorrowLines);
+    // Clean stale placeholder tokens that survived from a template-created journal.
+    targetContent = stripStalePlaceholder(targetContent);
     targetPath = targetJournal.path!;
     const targetSha = targetJournal.sha!;
 
