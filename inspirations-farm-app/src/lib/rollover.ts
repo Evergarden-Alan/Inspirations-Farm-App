@@ -353,8 +353,13 @@ function mergeIntoSection(content: string, incoming: string[]): string {
     if (d < topDepth) topDepth = d;
   }
 
-  // Map: normalized header text → last task line index of that top-level block
+  // Map: normalized header text → last task line index of that top-level block.
+  // Prefer the non-🔄 original block over a pre-existing 🔄 rollover block:
+  // both normalize to the same key, so only set the 🔄 block when no original
+  // exists yet. This keeps merges landing under the genuine original task
+  // even after a prior (already-rolled-over) version of the same task is present.
   const blockEndByHeader = new Map<string, number>();
+  const blockHasMarker = new Map<string, boolean>();
   if (topDepth !== Infinity) {
     for (let i = sectionStart + 1; i < sectionEnd; i++) {
       const m = allLines[i].match(TASK_LINE_RE);
@@ -367,7 +372,14 @@ function mergeIntoSection(content: string, incoming: string[]): string {
         if (indentDepth(mj[1]) <= topDepth) break; // next top-level task
         blockEnd = j;
       }
-      blockEndByHeader.set(normalizeTaskText(m[3]), blockEnd);
+      const key = normalizeTaskText(m[3]);
+      const isMarker = m[3].includes("🔄");
+      const prevMarker = blockHasMarker.get(key) ?? false;
+      // Set if: no entry yet, OR current block is non-🔄 but stored one is a 🔄 block.
+      if (!blockEndByHeader.has(key) || (!isMarker && prevMarker)) {
+        blockEndByHeader.set(key, blockEnd);
+        blockHasMarker.set(key, isMarker);
+      }
     }
   }
 
