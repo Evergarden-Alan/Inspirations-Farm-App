@@ -385,8 +385,8 @@ export function InspirationFeed({ initialItems }: InspirationFeedProps = {}) {
         )}
       </div>
 
-      {/* Capture Zone */}
-      <section className="space-y-3">
+      {/* Capture Zone — desktop only; mobile uses FAB */}
+      <section className="hidden lg:block space-y-3">
         <Textarea
           ref={textareaRef}
           placeholder="此刻有什么灵感..."
@@ -636,6 +636,7 @@ function InspirationCard({
   appendText: string;
 }) {
   const [expanded, setExpanded] = useState(false);
+  const [patchesExpanded, setPatchesExpanded] = useState(false);
   const survival = getSurvivalLabel(item.createdAt);
   const survivalColor = getSurvivalColor(item.createdAt);
 
@@ -660,12 +661,9 @@ function InspirationCard({
       className={`bg-white border-slate-200/60 shadow-sm group overflow-hidden border-l-4 ${borderColor}`}
     >
       <CardContent className="px-4 pt-4 pb-2 space-y-2.5">
-        {/* Title + badge */}
+        {/* Title */}
         <div className="flex items-start gap-2">
-          <span className="text-xs text-slate-400 font-mono flex-shrink-0 mt-0.5">
-            {item.id.slice(0, 10)}
-          </span>
-          <p className="text-sm font-medium text-slate-800 leading-snug">
+          <p className="text-sm font-semibold text-slate-800 leading-snug">
             {item.title}
           </p>
         </div>
@@ -711,28 +709,49 @@ function InspirationCard({
           </div>
         )}
 
-        {/* Patches timeline */}
+        {/* Patches timeline — collapsible */}
         {item.patches && item.patches.length > 0 && (
-          <div className="space-y-2">
+          <div>
             <div className="border-t border-slate-100 my-2" />
-            {item.patches.map((patch, idx) => (
-              <div
-                key={idx}
-                className="pl-2.5 border-l-2 border-slate-200 space-y-0.5"
-              >
-                <span className="text-[11px] text-slate-400 font-mono">
-                  {patch.time}
-                </span>
-                <div className={PATCH_PROSE_CN}>
-                  <ReactMarkdown
-                    remarkPlugins={[remarkGfm, remarkMath]}
-                    rehypePlugins={[[rehypeKatex, { strict: false, throwOnError: false, output: "html" }]]}
-                  >
-                    {patch.content}
-                  </ReactMarkdown>
-                </div>
-              </div>
-            ))}
+            <button
+              onClick={() => setPatchesExpanded((v) => !v)}
+              className="flex items-center gap-1 text-[11px] text-slate-400 hover:text-slate-600 transition-colors min-h-[28px] touch-manipulation"
+            >
+              {patchesExpanded
+                ? <><ChevronUp className="w-3 h-3" />{item.patches.length}条更新</>
+                : <><ChevronDown className="w-3 h-3" />{item.patches.length}条更新</>}
+            </button>
+            <AnimatePresence>
+              {patchesExpanded && (
+                <motion.div
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: "auto" }}
+                  exit={{ opacity: 0, height: 0 }}
+                  transition={{ duration: 0.18, ease: "easeInOut" }}
+                  style={{ overflow: "hidden" }}
+                  className="space-y-2 pt-1"
+                >
+                  {item.patches.map((patch, idx) => (
+                    <div
+                      key={idx}
+                      className="pl-2.5 border-l-2 border-slate-200 space-y-0.5"
+                    >
+                      <span className="text-[11px] text-slate-400 font-mono">
+                        {patch.time}
+                      </span>
+                      <div className={PATCH_PROSE_CN}>
+                        <ReactMarkdown
+                          remarkPlugins={[remarkGfm, remarkMath]}
+                          rehypePlugins={[[rehypeKatex, { strict: false, throwOnError: false, output: "html" }]]}
+                        >
+                          {patch.content}
+                        </ReactMarkdown>
+                      </div>
+                    </div>
+                  ))}
+                </motion.div>
+              )}
+            </AnimatePresence>
           </div>
         )}
 

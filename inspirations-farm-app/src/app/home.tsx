@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import { LockScreen } from "./lock-screen";
+import { CaptureFab } from "./capture-fab";
 import { hasPin } from "@/lib/api";
 import { getBeijingDateString } from "@/lib/beijing-time";
 
@@ -51,6 +52,9 @@ export function Home({ children }: { children: React.ReactNode }) {
 
       {/* Dashboard is always rendered so Suspense can stream */}
       {children}
+
+      {/* FAB — mobile quick-capture (hidden on desktop) */}
+      {unlocked && <CaptureFab />}
 
       {/* Lock overlay — covers everything until PIN is verified */}
       {!unlocked && (

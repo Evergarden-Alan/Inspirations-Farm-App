@@ -50,7 +50,7 @@ export function LockScreen({ onUnlock }: Props) {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-slate-50 p-4">
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-emerald-50 via-white to-slate-100 p-4">
       <motion.div
         initial={{ opacity: 0, scale: 0.96, y: 8 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
@@ -59,7 +59,7 @@ export function LockScreen({ onUnlock }: Props) {
       >
         {/* Icon */}
         <div className="flex justify-center">
-          <div className="w-16 h-16 rounded-2xl bg-slate-100 flex items-center justify-center">
+          <div className="w-16 h-16 rounded-2xl bg-white shadow-sm ring-1 ring-emerald-100 flex items-center justify-center">
             <Lock className="w-8 h-8 text-slate-500" />
           </div>
         </div>
