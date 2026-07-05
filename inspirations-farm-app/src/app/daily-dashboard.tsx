@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef } from "react";
 import { Plus, Loader2, Circle, CheckCircle2, CornerDownRight, Check } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
@@ -301,6 +302,18 @@ export function DailyDashboard({ initialDaily }: DailyDashboardProps = {}) {
           </span>
         </div>
         <p className="text-xs text-slate-400">{date}</p>
+
+        {/* Progress bar */}
+        {totalCount > 0 && (
+          <div className="h-1 w-full bg-slate-100 rounded-full overflow-hidden mt-2">
+            <motion.div
+              className="h-full bg-emerald-500 rounded-full"
+              initial={{ width: 0 }}
+              animate={{ width: `${Math.round((doneCount / totalCount) * 100)}%` }}
+              transition={{ duration: 0.5, ease: "easeOut" }}
+            />
+          </div>
+        )}
       </CardHeader>
 
       <CardContent className="space-y-3">
@@ -329,11 +342,19 @@ export function DailyDashboard({ initialDaily }: DailyDashboardProps = {}) {
                       disabled={acting}
                       className="w-full flex items-center gap-3 py-3 px-3 min-h-[3.5rem] rounded-lg hover:bg-slate-50 active:bg-slate-100 transition-colors text-left disabled:opacity-50 touch-manipulation"
                     >
-                      {task.done ? (
-                        <CheckCircle2 className={`${iconSize} text-emerald-500 flex-shrink-0`} />
-                      ) : (
-                        <Circle className={`${iconSize} text-slate-300 flex-shrink-0`} />
-                      )}
+                      <motion.div
+                        key={task.done ? "done" : "undone"}
+                        initial={{ scale: 0.7, opacity: 0.6 }}
+                        animate={{ scale: 1, opacity: 1 }}
+                        transition={{ type: "spring", stiffness: 400, damping: 15, duration: 0.25 }}
+                        className="flex-shrink-0"
+                      >
+                        {task.done ? (
+                          <CheckCircle2 className={`${iconSize} text-emerald-500`} />
+                        ) : (
+                          <Circle className={`${iconSize} text-slate-300`} />
+                        )}
+                      </motion.div>
                       <span
                         className={`text-base leading-relaxed transition-all duration-200 min-w-0 ${
                           task.done
@@ -390,40 +411,50 @@ export function DailyDashboard({ initialDaily }: DailyDashboardProps = {}) {
                       )}
                     </button>
 
-                    {/* Inline sub-task input */}
-                    {addSubFor === task.id && (
-                      <div
-                        className="flex items-center gap-2 py-1 px-3"
-                        style={{ marginLeft: `${1.5}rem` }}
-                      >
-                        <CornerDownRight className="w-4 h-4 text-slate-300 flex-shrink-0" />
-                        <Input
-                          placeholder="子任务..."
-                          value={subText}
-                          onChange={(e) => setSubText(e.target.value)}
-                          onKeyDown={(e) => handleSubKeyDown(e, task)}
-                          onBlur={() => {
-                            if (!subText.trim()) {
-                              setAddSubFor(null);
-                              setSubText("");
-                            }
-                          }}
-                          disabled={acting}
-                          className="h-9 text-sm border-slate-200 focus-visible:ring-emerald-500"
-                          autoFocus
-                        />
-                        <Button
-                          size="icon"
-                          variant="ghost"
-                          onClick={() => handleAddSub(task)}
-                          disabled={acting || !subText.trim()}
-                          className="h-8 w-8 flex-shrink-0 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50"
-                          title="确认"
+                    {/* Inline sub-task input — animated */}
+                    <AnimatePresence>
+                      {addSubFor === task.id && (
+                        <motion.div
+                          initial={{ opacity: 0, height: 0 }}
+                          animate={{ opacity: 1, height: "auto" }}
+                          exit={{ opacity: 0, height: 0 }}
+                          transition={{ duration: 0.18, ease: "easeInOut" }}
+                          style={{ overflow: "hidden" }}
                         >
-                          <Check className="w-4 h-4" />
-                        </Button>
-                      </div>
-                    )}
+                          <div
+                            className="flex items-center gap-2 py-1 px-3"
+                            style={{ marginLeft: `${1.5}rem` }}
+                          >
+                            <CornerDownRight className="w-4 h-4 text-slate-300 flex-shrink-0" />
+                            <Input
+                              placeholder="子任务..."
+                              value={subText}
+                              onChange={(e) => setSubText(e.target.value)}
+                              onKeyDown={(e) => handleSubKeyDown(e, task)}
+                              onBlur={() => {
+                                if (!subText.trim()) {
+                                  setAddSubFor(null);
+                                  setSubText("");
+                                }
+                              }}
+                              disabled={acting}
+                              className="h-9 text-sm border-slate-200 focus-visible:ring-emerald-500"
+                              autoFocus
+                            />
+                            <Button
+                              size="icon"
+                              variant="ghost"
+                              onClick={() => handleAddSub(task)}
+                              disabled={acting || !subText.trim()}
+                              className="h-8 w-8 flex-shrink-0 text-slate-400 hover:text-emerald-600 hover:bg-emerald-50"
+                              title="确认"
+                            >
+                              <Check className="w-4 h-4" />
+                            </Button>
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
                   </div>
                 </li>
               );

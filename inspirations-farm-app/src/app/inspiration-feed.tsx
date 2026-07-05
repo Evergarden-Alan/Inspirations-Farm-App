@@ -2,7 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Check, Trash2, Send, MessageSquarePlus, Loader2 } from "lucide-react";
+import { Check, Trash2, Send, MessageSquarePlus, Loader2, ChevronDown, ChevronUp, Undo2 } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
@@ -10,10 +11,35 @@ import rehypeKatex from "rehype-katex";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Card, CardContent } from "@/components/ui/card";
-import { getSurvivalLabel } from "@/lib/time";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { getSurvivalLabel, getSurvivalColor } from "@/lib/time";
 import { apiFetch, AuthError } from "@/lib/api";
 import { getBeijingDateString } from "@/lib/beijing-time";
+
+// ── Shared prose class string ──────────────────────────────
+const PROSE_CN =
+  "prose prose-sm prose-slate max-w-none break-words " +
+  "prose-p:my-0.5 prose-p:leading-relaxed prose-p:text-xs " +
+  "prose-ul:my-0.5 prose-ol:my-0.5 " +
+  "prose-li:my-1 prose-li:text-xs prose-li:leading-relaxed " +
+  "prose-a:text-blue-600 prose-a:no-underline hover:prose-a:underline " +
+  "prose-code:text-[11px] prose-code:bg-slate-100 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:font-mono prose-code:before:content-none prose-code:after:content-none " +
+  "prose-pre:text-xs prose-pre:my-1 " +
+  "prose-strong:text-slate-700 prose-strong:font-semibold " +
+  "prose-headings:my-1 prose-headings:text-sm prose-headings:font-medium " +
+  "prose-hr:my-1 " +
+  "prose-blockquote:my-1 prose-blockquote:text-xs " +
+  "prose-table:text-xs prose-th:text-xs prose-td:text-xs";
+
+const PATCH_PROSE_CN =
+  "text-xs text-slate-500 leading-relaxed prose prose-sm prose-slate max-w-none break-words " +
+  "prose-p:my-0 prose-p:text-xs prose-p:leading-relaxed " +
+  "prose-a:text-blue-600 prose-a:no-underline hover:prose-a:underline " +
+  "prose-code:text-[11px] prose-code:bg-slate-100 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:font-mono prose-code:before:content-none prose-code:after:content-none " +
+  "prose-strong:text-slate-600 prose-strong:font-semibold " +
+  "prose-ul:my-0.5 prose-ol:my-0.5 prose-li:my-0.5 prose-li:text-xs " +
+  "prose-hr:my-1 " +
+  "prose-blockquote:my-1 prose-blockquote:text-xs";
 
 interface Inspiration {
   name: string;
@@ -149,26 +175,52 @@ export function InspirationFeed({ initialItems }: InspirationFeedProps = {}) {
     }
   }
 
-  // ── Delete ──────────────────────────────────────────
-  async function handleDelete(item: Inspiration) {
-    setActionLoading(item.sha);
-    setError(null);
+  // ── Delete with undo ────────────────────────────────
+  const [pendingDelete, setPendingDelete] = useState<{
+    item: Inspiration;
+    timeoutId: ReturnType<typeof setTimeout>;
+  } | null>(null);
+
+  async function execDelete(item: Inspiration) {
     try {
       const res = await apiFetch("/api/github", {
         method: "DELETE",
         body: JSON.stringify({ path: item.path, sha: item.sha }),
       });
       const data = await res.json();
-      if (data.ok) {
-        setItems((prev) => prev.filter((i) => i.sha !== item.sha));
-      } else {
-        setError(data.error ?? "Failed to delete");
-      }
+      if (!data.ok) setError(data.error ?? "Failed to delete");
     } catch (err) {
       if (!(err instanceof AuthError)) setError("Network error");
-    } finally {
-      setActionLoading(null);
+      // Re-add on failure
+      setItems((prev) => [item, ...prev]);
     }
+  }
+
+  function handleDelete(item: Inspiration) {
+    // Optimistic remove immediately
+    setItems((prev) => prev.filter((i) => i.sha !== item.sha));
+    setError(null);
+
+    // Clear any existing pending delete first
+    if (pendingDelete) {
+      clearTimeout(pendingDelete.timeoutId);
+      execDelete(pendingDelete.item);
+    }
+
+    const timeoutId = setTimeout(() => {
+      setPendingDelete(null);
+      execDelete(item);
+    }, 3500);
+
+    setPendingDelete({ item, timeoutId });
+  }
+
+  function handleUndoDelete() {
+    if (!pendingDelete) return;
+    clearTimeout(pendingDelete.timeoutId);
+    // Re-insert at original position is hard; prepend is acceptable
+    setItems((prev) => [pendingDelete.item, ...prev]);
+    setPendingDelete(null);
   }
 
   // ── Auto-resize textarea ────────────────────────────
@@ -279,6 +331,14 @@ export function InspirationFeed({ initialItems }: InspirationFeedProps = {}) {
   }
 
   // ── Filtering ───────────────────────────────────────
+  const priorityCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    items.forEach((i) => {
+      counts[i.priority] = (counts[i.priority] || 0) + 1;
+    });
+    return counts;
+  }, [items]);
+
   const allTags = useMemo(
     () => [...new Set(items.flatMap((i) => i.tags || []))].sort(),
     [items]
@@ -295,6 +355,13 @@ export function InspirationFeed({ initialItems }: InspirationFeedProps = {}) {
     return result;
   }, [items, filterPriority, filterTag]);
 
+  // ── Error auto-dismiss (4s) ──────────────────────────
+  useEffect(() => {
+    if (!error) return;
+    const id = setTimeout(() => setError(null), 4000);
+    return () => clearTimeout(id);
+  }, [error]);
+
   // ── Ctrl+Enter ──────────────────────────────────────
   function handleKeyDown(e: React.KeyboardEvent) {
     if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
@@ -306,6 +373,18 @@ export function InspirationFeed({ initialItems }: InspirationFeedProps = {}) {
   // ── Render ──────────────────────────────────────────
   return (
     <div className="space-y-5 pb-12">
+      {/* Section header */}
+      <div className="flex items-center justify-between">
+        <h2 className="text-base font-semibold text-slate-700">🌱 灵感池</h2>
+        {items.length > 0 && (
+          <span className="text-xs text-slate-400 tabular-nums">
+            {filteredItems.length !== items.length
+              ? `${filteredItems.length} / ${items.length}`
+              : `${items.length} 条`}
+          </span>
+        )}
+      </div>
+
       {/* Capture Zone */}
       <section className="space-y-3">
         <Textarea
@@ -340,6 +419,8 @@ export function InspirationFeed({ initialItems }: InspirationFeedProps = {}) {
                   type="button"
                   onClick={() => setNewPriority(p)}
                   disabled={submitting}
+                  aria-pressed={active}
+                  aria-label={`优先级 ${p.toUpperCase()}`}
                   className={`px-2 py-0.5 text-xs rounded border transition-colors ${
                     active
                       ? `${color} font-medium`
@@ -383,12 +464,13 @@ export function InspirationFeed({ initialItems }: InspirationFeedProps = {}) {
 
       {/* Filter Bar */}
       {items.length > 0 && (
-        <section className="space-y-2">
-          {/* Priority filter */}
-          <div className="flex items-center gap-1.5 flex-wrap">
+        <section className="space-y-1.5">
+          {/* Priority filter — scrollable on mobile */}
+          <div className="flex items-center gap-1.5 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden pb-0.5 -mx-1 px-1 flex-nowrap sm:flex-wrap">
             {["all", "p0", "p1", "p2", "p3"].map((p) => {
               const active = filterPriority === p;
               const label = p === "all" ? "全部" : p.toUpperCase();
+              const count = p === "all" ? items.length : (priorityCounts[p] ?? 0);
               const color =
                 p === "p0"
                   ? "text-red-600 bg-red-50"
@@ -399,28 +481,35 @@ export function InspirationFeed({ initialItems }: InspirationFeedProps = {}) {
                       : p === "p3"
                         ? "text-slate-500 bg-slate-100"
                         : "";
+              // Hide pills with zero items (except "all")
+              if (p !== "all" && count === 0) return null;
               return (
                 <button
                   key={p}
                   onClick={() => setFilterPriority(p)}
-                  className={`px-2.5 py-1 text-xs rounded-full transition-colors ${
+                  aria-pressed={active}
+                  aria-label={p === "all" ? "全部优先级" : `优先级 ${p.toUpperCase()}`}
+                  className={`flex items-center gap-1 px-2.5 py-1 text-xs rounded-full transition-colors min-h-[32px] touch-manipulation ${
                     active
                       ? `${color} font-medium`
                       : "text-slate-400 hover:text-slate-600 hover:bg-slate-100"
                   }`}
                 >
                   {label}
+                  <span className={`text-[10px] tabular-nums ${active ? "opacity-70" : "opacity-50"}`}>
+                    {count}
+                  </span>
                 </button>
               );
             })}
           </div>
 
-          {/* Tag filter */}
+          {/* Tag filter — scrollable on mobile */}
           {allTags.length > 0 && (
-            <div className="flex items-center gap-1.5 flex-wrap">
+            <div className="flex items-center gap-1.5 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden pb-0.5 -mx-1 px-1 flex-nowrap sm:flex-wrap">
               <button
                 onClick={() => setFilterTag("all")}
-                className={`px-2.5 py-1 text-xs rounded-full transition-colors ${
+                className={`px-2.5 py-1 text-xs rounded-full transition-colors min-h-[32px] touch-manipulation shrink-0 ${
                   filterTag === "all"
                     ? "bg-slate-200 text-slate-700 font-medium"
                     : "text-slate-400 hover:text-slate-600 hover:bg-slate-100"
@@ -432,7 +521,7 @@ export function InspirationFeed({ initialItems }: InspirationFeedProps = {}) {
                 <button
                   key={tag}
                   onClick={() => setFilterTag(tag)}
-                  className={`px-2 py-0.5 text-xs rounded-full transition-colors ${
+                  className={`px-2 py-0.5 text-xs rounded-full transition-colors min-h-[32px] touch-manipulation shrink-0 ${
                     filterTag === tag
                       ? "bg-slate-200 text-slate-700 font-medium"
                       : "bg-slate-100 text-slate-500 hover:bg-slate-200"
@@ -446,6 +535,28 @@ export function InspirationFeed({ initialItems }: InspirationFeedProps = {}) {
         </section>
       )}
 
+      {/* Undo delete toast */}
+      <AnimatePresence>
+        {pendingDelete && (
+          <motion.div
+            initial={{ opacity: 0, y: 8 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 8 }}
+            transition={{ duration: 0.18 }}
+            className="flex items-center justify-between gap-3 px-3 py-2 bg-slate-800 text-white text-sm rounded-lg"
+          >
+            <span className="text-slate-300 text-xs">已删除「{pendingDelete.item.title}」</span>
+            <button
+              onClick={handleUndoDelete}
+              className="flex items-center gap-1 text-xs text-emerald-400 hover:text-emerald-300 font-medium shrink-0"
+            >
+              <Undo2 className="w-3.5 h-3.5" />
+              撤销
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       {/* Timeline */}
       <section className="space-y-3">
         {loading ? (
@@ -453,29 +564,43 @@ export function InspirationFeed({ initialItems }: InspirationFeedProps = {}) {
             正在加载灵感...
           </p>
         ) : filteredItems.length === 0 ? (
-          <p className="text-center text-sm text-slate-400 py-12">
+          <motion.p
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            className="text-center text-sm text-slate-400 py-12"
+          >
             {items.length === 0 ? "还没有灵感，种下第一个吧 🌱" : "没有匹配的灵感"}
-          </p>
+          </motion.p>
         ) : (
-          filteredItems.map((item) => (
-            <InspirationCard
-              key={item.sha}
-              item={item}
-              onComplete={handleComplete}
-              onDelete={handleDelete}
-              onPush={handlePushToDaily}
-              onAppend={handleAppend}
-              onAppendToggle={handleAppendToggle}
-              onAppendTextChange={setAppendText}
-              disabled={actionLoading === item.sha}
-              pushing={pushingId === item.id}
-              pushFeedback={
-                pushFeedback?.id === item.id ? pushFeedback.type : null
-              }
-              appending={appendingId === item.id}
-              appendText={appendText}
-            />
-          ))
+          <AnimatePresence initial={false}>
+            {filteredItems.map((item) => (
+              <motion.div
+                key={item.sha}
+                layout
+                initial={{ opacity: 0, y: 12 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, x: -16, scale: 0.97 }}
+                transition={{ duration: 0.2, ease: "easeOut" }}
+              >
+                <InspirationCard
+                  item={item}
+                  onComplete={handleComplete}
+                  onDelete={handleDelete}
+                  onPush={handlePushToDaily}
+                  onAppend={handleAppend}
+                  onAppendToggle={handleAppendToggle}
+                  onAppendTextChange={setAppendText}
+                  disabled={actionLoading === item.sha}
+                  pushing={pushingId === item.id}
+                  pushFeedback={
+                    pushFeedback?.id === item.id ? pushFeedback.type : null
+                  }
+                  appending={appendingId === item.id}
+                  appendText={appendText}
+                />
+              </motion.div>
+            ))}
+          </AnimatePresence>
         )}
       </section>
     </div>
@@ -510,7 +635,9 @@ function InspirationCard({
   appending: boolean;
   appendText: string;
 }) {
+  const [expanded, setExpanded] = useState(false);
   const survival = getSurvivalLabel(item.createdAt);
+  const survivalColor = getSurvivalColor(item.createdAt);
 
   // Priority → left border class
   const priorityBorder: Record<string, string> = {
@@ -543,26 +670,30 @@ function InspirationCard({
           </p>
         </div>
 
-        {/* Content preview */}
+        {/* Content preview with expand/collapse */}
         {item.content && (
-          <div className="line-clamp-2 prose prose-sm prose-slate max-w-none break-words
-            prose-p:my-0.5 prose-p:leading-relaxed prose-p:text-xs
-            prose-ul:my-0.5 prose-ol:my-0.5
-            prose-li:my-1 prose-li:text-xs prose-li:leading-relaxed
-            prose-a:text-blue-600 prose-a:no-underline hover:prose-a:underline
-            prose-code:text-[11px] prose-code:bg-slate-100 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:font-mono prose-code:before:content-none prose-code:after:content-none
-            prose-pre:text-xs prose-pre:my-1
-            prose-strong:text-slate-700 prose-strong:font-semibold
-            prose-headings:my-1 prose-headings:text-sm prose-headings:font-medium
-            prose-hr:my-1
-            prose-blockquote:my-1 prose-blockquote:text-xs
-            prose-table:text-xs prose-th:text-xs prose-td:text-xs">
-            <ReactMarkdown
-              remarkPlugins={[remarkGfm, remarkMath]}
-              rehypePlugins={[[rehypeKatex, { strict: false, throwOnError: false, output: "html" }]]}
-            >
-              {item.content}
-            </ReactMarkdown>
+          <div>
+            <div className={`${PROSE_CN} ${expanded ? "" : "line-clamp-2"}`}>
+              <ReactMarkdown
+                remarkPlugins={[remarkGfm, remarkMath]}
+                rehypePlugins={[[rehypeKatex, { strict: false, throwOnError: false, output: "html" }]]}
+              >
+                {item.content}
+              </ReactMarkdown>
+            </div>
+            {/* Only show toggle if content is likely clipped */}
+            {item.content.length > 80 && (
+              <button
+                onClick={() => setExpanded((v) => !v)}
+                className="mt-0.5 flex items-center gap-0.5 text-[11px] text-slate-400 hover:text-slate-600 transition-colors min-h-[32px] px-1 -mx-1 touch-manipulation"
+              >
+                {expanded ? (
+                  <><ChevronUp className="w-3 h-3" />收起</>
+                ) : (
+                  <><ChevronDown className="w-3 h-3" />展开</>
+                )}
+              </button>
+            )}
           </div>
         )}
 
@@ -592,19 +723,11 @@ function InspirationCard({
                 <span className="text-[11px] text-slate-400 font-mono">
                   {patch.time}
                 </span>
-                <div className="text-xs text-slate-500 leading-relaxed prose prose-sm prose-slate max-w-none break-words
-                  prose-p:my-0 prose-p:text-xs prose-p:leading-relaxed
-                  prose-a:text-blue-600 prose-a:no-underline hover:prose-a:underline
-                  prose-code:text-[11px] prose-code:bg-slate-100 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:font-mono prose-code:before:content-none prose-code:after:content-none
-                  prose-strong:text-slate-600 prose-strong:font-semibold
-                  prose-ul:my-0.5 prose-ol:my-0.5 prose-li:my-0.5 prose-li:text-xs
-                  prose-hr:my-1
-                  prose-blockquote:my-1 prose-blockquote:text-xs
-                ">
+                <div className={PATCH_PROSE_CN}>
                   <ReactMarkdown
-              remarkPlugins={[remarkGfm, remarkMath]}
-              rehypePlugins={[[rehypeKatex, { strict: false, throwOnError: false, output: "html" }]]}
-            >
+                    remarkPlugins={[remarkGfm, remarkMath]}
+                    rehypePlugins={[[rehypeKatex, { strict: false, throwOnError: false, output: "html" }]]}
+                  >
                     {patch.content}
                   </ReactMarkdown>
                 </div>
@@ -613,53 +736,68 @@ function InspirationCard({
           </div>
         )}
 
-        {/* Append patch textarea */}
-        {appending && (
-          <div className="space-y-2 pt-0.5">
-            <textarea
-              autoFocus
-              placeholder="补充一下这个想法..."
-              value={appendText}
-              onChange={(e) => onAppendTextChange(e.target.value)}
-              onKeyDown={handleAppendKeyDown}
-              disabled={disabled}
-              rows={2}
-              className="w-full text-sm rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 resize-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 placeholder:text-slate-400 disabled:opacity-50"
-            />
-            <div className="flex items-center justify-end gap-2">
-              <button
-                onClick={() => onAppendToggle(null)}
+        {/* Append patch textarea — animated expand */}
+        <AnimatePresence>
+          {appending && (
+            <motion.div
+              initial={{ opacity: 0, height: 0 }}
+              animate={{ opacity: 1, height: "auto" }}
+              exit={{ opacity: 0, height: 0 }}
+              transition={{ duration: 0.18, ease: "easeInOut" }}
+              style={{ overflow: "hidden" }}
+              className="space-y-2 pt-0.5"
+            >
+              <textarea
+                autoFocus
+                placeholder="补充一下这个想法..."
+                value={appendText}
+                onChange={(e) => onAppendTextChange(e.target.value)}
+                onKeyDown={handleAppendKeyDown}
                 disabled={disabled}
-                className="px-3 py-1.5 text-xs text-slate-500 hover:text-slate-700 rounded-md hover:bg-slate-100 transition-colors min-w-[44px] min-h-[44px] touch-manipulation"
-              >
-                取消
-              </button>
-              <button
-                onClick={() => onAppend(item)}
-                disabled={disabled || !appendText.trim()}
-                className="px-3 py-1.5 text-xs text-white bg-emerald-600 hover:bg-emerald-700 rounded-md transition-colors disabled:opacity-40 min-w-[44px] min-h-[44px] touch-manipulation"
-              >
-                {disabled ? "追加中..." : "发送"}
-              </button>
-            </div>
-          </div>
-        )}
+                rows={2}
+                className="w-full text-sm rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 resize-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 placeholder:text-slate-400 disabled:opacity-50"
+              />
+              <div className="flex items-center justify-end gap-2">
+                <button
+                  onClick={() => onAppendToggle(null)}
+                  disabled={disabled}
+                  className="px-3 py-1.5 text-xs text-slate-500 hover:text-slate-700 rounded-md hover:bg-slate-100 transition-colors min-w-[44px] min-h-[44px] touch-manipulation"
+                >
+                  取消
+                </button>
+                <button
+                  onClick={() => onAppend(item)}
+                  disabled={disabled || !appendText.trim()}
+                  className="px-3 py-1.5 text-xs text-white bg-emerald-600 hover:bg-emerald-700 rounded-md transition-colors disabled:opacity-40 min-w-[44px] min-h-[44px] touch-manipulation"
+                >
+                  {disabled ? "追加中..." : "发送"}
+                </button>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
 
         {/* Footer: survival time + actions */}
         <div className="flex items-center justify-between pt-2 border-t border-slate-100">
           <div className="flex items-center gap-2">
-            <span className="text-xs text-slate-400">{survival}</span>
-            {pushFeedback && (
-              <span
-                className={`text-xs font-medium ${
-                  pushFeedback === "success"
-                    ? "text-emerald-600"
-                    : "text-amber-600"
-                }`}
-              >
-                {pushFeedback === "success" ? "✓ 已发送" : "⚠ 已在日程中"}
-              </span>
-            )}
+            <span className={`text-xs ${survivalColor}`}>{survival}</span>
+            <AnimatePresence>
+              {pushFeedback && (
+                <motion.span
+                  initial={{ opacity: 0, scale: 0.85, x: -4 }}
+                  animate={{ opacity: 1, scale: 1, x: 0 }}
+                  exit={{ opacity: 0, scale: 0.9 }}
+                  transition={{ duration: 0.15 }}
+                  className={`text-xs font-medium ${
+                    pushFeedback === "success"
+                      ? "text-emerald-600"
+                      : "text-amber-600"
+                  }`}
+                >
+                  {pushFeedback === "success" ? "✓ 已发送" : "⚠ 已在日程中"}
+                </motion.span>
+              )}
+            </AnimatePresence>
           </div>
 
           <div className="flex items-center gap-1">

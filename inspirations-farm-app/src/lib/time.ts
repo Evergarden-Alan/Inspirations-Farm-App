@@ -37,6 +37,18 @@ export function parseBeijingTime(raw: string): Date {
   return new Date(s + "+08:00");
 }
 
+/**
+ * Returns a Tailwind text-color class based on how old the item is.
+ * Older = more urgent visual emphasis.
+ */
+export function getSurvivalColor(createdAt: string): string {
+  const created = parseBeijingTime(createdAt);
+  const days = (Date.now() - created.getTime()) / 86_400_000;
+  if (days >= 7) return "text-red-400";
+  if (days >= 3) return "text-amber-400";
+  return "text-slate-400";
+}
+
 export function getSurvivalLabel(createdAt: string): string {
   const created = parseBeijingTime(createdAt);
   const now = new Date();

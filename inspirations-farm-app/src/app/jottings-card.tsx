@@ -111,31 +111,41 @@ export function JottingsCard({ initialNotes }: JottingsCardProps = {}) {
         {/* Notes timeline */}
         {loading ? (
           <p className="text-sm text-slate-400 text-center py-4">加载中...</p>
-        ) : notes.length > 0 ? (
-          <div className="space-y-1.5">
-            {notes.map((n, i) => (
-              <div key={i} className="flex items-start gap-2 text-sm">
-                <span className="text-xs text-slate-400 font-mono flex-shrink-0 mt-0.5 w-10">
-                  {n.time}
-                </span>
-                <div className="text-slate-600 leading-relaxed min-w-0 prose prose-sm prose-slate max-w-none break-words
-                  prose-p:my-0 prose-p:text-sm prose-p:leading-relaxed
-                  prose-a:text-blue-600 prose-a:no-underline hover:prose-a:underline
-                  prose-code:text-xs prose-code:bg-slate-100 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:font-mono prose-code:before:content-none prose-code:after:content-none
-                  prose-strong:text-slate-700 prose-strong:font-semibold
-                  prose-ul:my-0.5 prose-ol:my-0.5 prose-li:my-0.5 prose-li:text-sm
-                ">
-                  <ReactMarkdown
-                    remarkPlugins={[remarkGfm, remarkMath]}
-                    rehypePlugins={[[rehypeKatex, { strict: false, throwOnError: false, output: "html" }]]}
-                  >
-                    {n.text}
-                  </ReactMarkdown>
+        ) : notes.length === 0 ? (
+          <p className="text-xs text-slate-400 text-center py-3">还没有杂记，随手记一笔吧</p>
+        ) : (
+          <div className="relative pl-3">
+            {/* Vertical timeline line */}
+            <div className="absolute left-0 top-1 bottom-1 w-px bg-slate-100" />
+
+            <div className="space-y-3">
+              {notes.map((n, i) => (
+                <div key={i} className="flex items-start gap-2.5 text-sm relative">
+                  {/* Timeline dot */}
+                  <div className="absolute -left-3.5 top-1.5 w-2 h-2 rounded-full bg-slate-200 border border-white ring-1 ring-slate-200 shrink-0" />
+
+                  <span className="text-[11px] text-slate-400 font-mono shrink-0 mt-0.5 w-10 leading-relaxed">
+                    {n.time}
+                  </span>
+                  <div className="text-slate-600 leading-relaxed min-w-0 prose prose-sm prose-slate max-w-none break-words
+                    prose-p:my-0 prose-p:text-sm prose-p:leading-relaxed
+                    prose-a:text-blue-600 prose-a:no-underline hover:prose-a:underline
+                    prose-code:text-xs prose-code:bg-slate-100 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:font-mono prose-code:before:content-none prose-code:after:content-none
+                    prose-strong:text-slate-700 prose-strong:font-semibold
+                    prose-ul:my-0.5 prose-ol:my-0.5 prose-li:my-0.5 prose-li:text-sm
+                  ">
+                    <ReactMarkdown
+                      remarkPlugins={[remarkGfm, remarkMath]}
+                      rehypePlugins={[[rehypeKatex, { strict: false, throwOnError: false, output: "html" }]]}
+                    >
+                      {n.text}
+                    </ReactMarkdown>
+                  </div>
                 </div>
-              </div>
-            ))}
+              ))}
+            </div>
           </div>
-        ) : null}
+        )}
 
         {/* Add note input */}
         <div className="flex items-center gap-2 pt-2 border-t border-slate-100">

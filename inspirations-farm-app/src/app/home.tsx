@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { LockScreen } from "./lock-screen";
 import { hasPin } from "@/lib/api";
+import { getBeijingDateString } from "@/lib/beijing-time";
 
 /**
  * Client component — handles PIN lock screen and renders the
@@ -32,14 +33,19 @@ export function Home({ children }: { children: React.ReactNode }) {
     return () => window.removeEventListener("auth:expired", handleAuthExpired);
   }, []);
 
+  const today = getBeijingDateString();
+
   return (
     <div className="min-h-screen bg-slate-50/50 font-sans antialiased">
       {/* Header */}
       <header className="sticky top-0 z-20 bg-white/80 backdrop-blur border-b border-slate-200/60">
-        <div className="max-w-7xl mx-auto px-4 py-4">
-          <h1 className="text-xl font-semibold tracking-tight text-slate-800">
+        <div className="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between gap-2 min-h-[52px]">
+          <h1 className="text-lg font-semibold tracking-tight text-slate-800 shrink-0">
             Inspirations Farm
           </h1>
+          <span className="text-xs text-slate-400 font-mono tabular-nums shrink-0">
+            {today}
+          </span>
         </div>
       </header>
 

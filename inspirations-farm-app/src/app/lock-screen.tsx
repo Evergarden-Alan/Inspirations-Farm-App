@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Lock } from "lucide-react";
+import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { setPin as savePin, apiFetch } from "@/lib/api";
@@ -50,7 +51,12 @@ export function LockScreen({ onUnlock }: Props) {
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-slate-50 p-4">
-      <div className="w-full max-w-xs space-y-6 text-center">
+      <motion.div
+        initial={{ opacity: 0, scale: 0.96, y: 8 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        transition={{ duration: 0.25, ease: "easeOut" }}
+        className="w-full max-w-xs space-y-6 text-center"
+      >
         {/* Icon */}
         <div className="flex justify-center">
           <div className="w-16 h-16 rounded-2xl bg-slate-100 flex items-center justify-center">
@@ -96,7 +102,7 @@ export function LockScreen({ onUnlock }: Props) {
             {checking ? "验证中..." : "进入农场"}
           </Button>
         </div>
-      </div>
+      </motion.div>
     </div>
   );
 }
