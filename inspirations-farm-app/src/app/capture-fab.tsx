@@ -8,6 +8,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { apiFetch, AuthError } from "@/lib/api";
+import { toast } from "@/app/toast";
 
 /**
  * Floating Action Button — mobile only (hidden on lg+).
@@ -62,6 +63,7 @@ export function CaptureFab() {
         setPriority("p2");
         setTags("");
         setOpen(false);
+        toast.success("已种下灵感 🌱");
         window.dispatchEvent(new CustomEvent("inspiration:updated"));
         router.refresh();
       } else {

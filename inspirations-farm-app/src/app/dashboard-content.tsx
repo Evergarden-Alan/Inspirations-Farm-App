@@ -2,6 +2,7 @@ import { getTodos, getInspirations, syncCompletedIdeas } from "@/lib/data";
 import { DailyDashboard } from "./daily-dashboard";
 import { InspirationFeed } from "./inspiration-feed";
 import { JottingsCard } from "./jottings-card";
+import { TabLayout } from "./tab-layout";
 import type { DailyTask } from "@/lib/github";
 
 /**
@@ -63,17 +64,10 @@ export default async function DashboardContent() {
   };
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 max-w-7xl mx-auto p-4 pb-[calc(6rem+env(safe-area-inset-bottom))]">
-      {/* Left column: Schedule + Jottings */}
-      <div className="flex flex-col gap-6">
-        <DailyDashboard initialDaily={dailyData} />
-        <JottingsCard initialNotes={notesData} />
-      </div>
-
-      {/* Right column: Inspiration Pool */}
-      <div className="flex flex-col gap-6">
-        <InspirationFeed initialItems={reconciledIdeas} />
-      </div>
-    </div>
+    <TabLayout
+      todayPanel={<DailyDashboard initialDaily={dailyData} />}
+      inspirationsPanel={<InspirationFeed initialItems={reconciledIdeas} />}
+      jottingsPanel={<JottingsCard initialNotes={notesData} />}
+    />
   );
 }

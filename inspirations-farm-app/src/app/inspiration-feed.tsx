@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Check, Trash2, Send, MessageSquarePlus, Loader2, ChevronDown, ChevronUp, Undo2 } from "lucide-react";
+import { Check, Trash2, Send, MessageSquarePlus, Loader2, ChevronDown, ChevronUp, Undo2, MoreHorizontal } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -14,6 +14,7 @@ import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { getSurvivalLabel, getSurvivalColor } from "@/lib/time";
 import { apiFetch, AuthError } from "@/lib/api";
+import { toast } from "@/app/toast";
 import { getBeijingDateString } from "@/lib/beijing-time";
 
 // ── Shared prose class string ──────────────────────────────
@@ -165,11 +166,12 @@ export function InspirationFeed({ initialItems }: InspirationFeedProps = {}) {
       const data = await res.json();
       if (data.ok) {
         setItems((prev) => prev.filter((i) => i.sha !== item.sha));
+        toast.success("灵感已完成 ✓");
       } else {
-        setError(data.error ?? "Failed to update");
+        toast.error(data.error ?? "Failed to update");
       }
     } catch (err) {
-      if (!(err instanceof AuthError)) setError("Network error");
+      if (!(err instanceof AuthError)) toast.error("Network error");
     } finally {
       setActionLoading(null);
     }
@@ -236,10 +238,6 @@ export function InspirationFeed({ initialItems }: InspirationFeedProps = {}) {
 
   // ── Push to daily ────────────────────────────────────
   const [pushingId, setPushingId] = useState<string | null>(null);
-  const [pushFeedback, setPushFeedback] = useState<{
-    id: string;
-    type: "success" | "duplicate";
-  } | null>(null);
 
   // ── Append patch ─────────────────────────────────────
   const [appendingId, setAppendingId] = useState<string | null>(null);
@@ -248,7 +246,6 @@ export function InspirationFeed({ initialItems }: InspirationFeedProps = {}) {
   async function handlePushToDaily(item: Inspiration) {
     setPushingId(item.id);
     setError(null);
-    setPushFeedback(null);
     try {
       const res = await apiFetch("/api/daily", {
         method: "POST",
@@ -260,12 +257,12 @@ export function InspirationFeed({ initialItems }: InspirationFeedProps = {}) {
       });
       const data = await res.json();
       if (data.ok) {
-        setPushFeedback({ id: item.id, type: "success" });
+        toast.success("已推送到今日日程 ✓");
         window.dispatchEvent(new CustomEvent("daily:updated"));
         router.refresh();
       } else {
         if (data.duplicate) {
-          setPushFeedback({ id: item.id, type: "duplicate" });
+          toast.info("此灵感已在今日日程中");
         } else {
           setError(data.error ?? "Failed to push");
         }
@@ -274,7 +271,6 @@ export function InspirationFeed({ initialItems }: InspirationFeedProps = {}) {
       if (!(err instanceof AuthError)) setError("Network error");
     } finally {
       setPushingId(null);
-      setTimeout(() => setPushFeedback(null), 2500);
     }
   }
 
@@ -592,9 +588,6 @@ export function InspirationFeed({ initialItems }: InspirationFeedProps = {}) {
                   onAppendTextChange={setAppendText}
                   disabled={actionLoading === item.sha}
                   pushing={pushingId === item.id}
-                  pushFeedback={
-                    pushFeedback?.id === item.id ? pushFeedback.type : null
-                  }
                   appending={appendingId === item.id}
                   appendText={appendText}
                 />
@@ -618,7 +611,6 @@ function InspirationCard({
   onAppendTextChange,
   disabled,
   pushing,
-  pushFeedback,
   appending,
   appendText,
 }: {
@@ -631,12 +623,12 @@ function InspirationCard({
   onAppendTextChange: (text: string) => void;
   disabled: boolean;
   pushing: boolean;
-  pushFeedback: "success" | "duplicate" | null;
   appending: boolean;
   appendText: string;
 }) {
   const [expanded, setExpanded] = useState(false);
   const [patchesExpanded, setPatchesExpanded] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   const survival = getSurvivalLabel(item.createdAt);
   const survivalColor = getSurvivalColor(item.createdAt);
 
@@ -800,23 +792,6 @@ function InspirationCard({
         <div className="flex items-center justify-between pt-2 border-t border-slate-100">
           <div className="flex items-center gap-2">
             <span className={`text-xs ${survivalColor}`}>{survival}</span>
-            <AnimatePresence>
-              {pushFeedback && (
-                <motion.span
-                  initial={{ opacity: 0, scale: 0.85, x: -4 }}
-                  animate={{ opacity: 1, scale: 1, x: 0 }}
-                  exit={{ opacity: 0, scale: 0.9 }}
-                  transition={{ duration: 0.15 }}
-                  className={`text-xs font-medium ${
-                    pushFeedback === "success"
-                      ? "text-emerald-600"
-                      : "text-amber-600"
-                  }`}
-                >
-                  {pushFeedback === "success" ? "✓ 已发送" : "⚠ 已在日程中"}
-                </motion.span>
-              )}
-            </AnimatePresence>
           </div>
 
           <div className="flex items-center gap-1">
@@ -860,15 +835,51 @@ function InspirationCard({
               <Check className="w-5 h-5" />
             </button>
 
-            {/* Delete */}
-            <button
-              onClick={() => onDelete(item)}
-              disabled={disabled}
-              className="flex items-center justify-center min-w-[44px] min-h-[44px] rounded-lg text-slate-400 hover:text-red-500 hover:bg-red-50 active:bg-red-100 transition-all disabled:opacity-30 md:opacity-0 md:group-hover:opacity-100 touch-manipulation"
-              title="删除"
-            >
-              <Trash2 className="w-5 h-5" />
-            </button>
+            {/* Overflow menu — delete lives here */}
+            <div className="relative">
+              <button
+                onClick={() => setMenuOpen((v) => !v)}
+                disabled={disabled}
+                className="flex items-center justify-center min-w-[44px] min-h-[44px] rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 active:bg-slate-200 transition-all disabled:opacity-30 md:opacity-0 md:group-hover:opacity-100 touch-manipulation"
+                title="更多操作"
+                aria-expanded={menuOpen}
+                aria-haspopup="menu"
+              >
+                <MoreHorizontal className="w-4 h-4" />
+              </button>
+              <AnimatePresence>
+                {menuOpen && (
+                  <>
+                    {/* Click-outside backdrop */}
+                    <div
+                      className="fixed inset-0 z-10"
+                      onClick={() => setMenuOpen(false)}
+                    />
+                    <motion.div
+                      initial={{ opacity: 0, scale: 0.92, y: -4 }}
+                      animate={{ opacity: 1, scale: 1, y: 0 }}
+                      exit={{ opacity: 0, scale: 0.92, y: -4 }}
+                      transition={{ duration: 0.12 }}
+                      role="menu"
+                      className="absolute right-0 bottom-full mb-1 z-20 bg-white border border-slate-200 rounded-xl shadow-lg py-1 min-w-[110px]"
+                    >
+                      <button
+                        role="menuitem"
+                        onClick={() => {
+                          setMenuOpen(false);
+                          onDelete(item);
+                        }}
+                        disabled={disabled}
+                        className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-red-50 transition-colors touch-manipulation"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                        删除
+                      </button>
+                    </motion.div>
+                  </>
+                )}
+              </AnimatePresence>
+            </div>
           </div>
         </div>
       </CardContent>

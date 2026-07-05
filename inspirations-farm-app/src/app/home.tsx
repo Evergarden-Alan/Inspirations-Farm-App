@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { LockScreen } from "./lock-screen";
 import { CaptureFab } from "./capture-fab";
+import { ToastContainer } from "./toast";
 import { hasPin } from "@/lib/api";
 import { getBeijingDateString } from "@/lib/beijing-time";
 
@@ -55,6 +56,9 @@ export function Home({ children }: { children: React.ReactNode }) {
 
       {/* FAB — mobile quick-capture (hidden on desktop) */}
       {unlocked && <CaptureFab />}
+
+      {/* Global toast notifications */}
+      <ToastContainer />
 
       {/* Lock overlay — covers everything until PIN is verified */}
       {!unlocked && (
