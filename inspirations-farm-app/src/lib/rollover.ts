@@ -49,8 +49,9 @@ interface TaskNode {
   children: TaskNode[];
 }
 
-// Matches lines like "  - [x] Buy groceries" or "    - [>] Old task"
-const TASK_LINE_RE = /^(\s*)-\s*\[([ xX>])\]\s+(.*)$/;
+// Matches lines like "  - [x] Buy groceries" or "    - [>] Old task".
+// Bullet accepts -, *, or + (all valid Markdown task-list markers).
+const TASK_LINE_RE = /^(\s*)[-+*]\s*\[([ xX>])\]\s+(.*)$/;
 const SECTION_HEADING_RE = /^#+\s+当日日程\s*$/;
 
 /** Normalize mixed tab/space indentation to a depth number (1 tab = 2 spaces). */
@@ -228,7 +229,9 @@ function rebuildLine(node: TaskNode, status: "x" | " " | ">"): string {
   if (status === " " && !text.includes("🔄")) {
     text = text + " 🔄";
   }
-  return `${node.indent}- [${status}] ${text}`;
+  // Preserve the original bullet (-, *, or +) from the source line.
+  const bullet = node.raw.match(/^\s*([-+*])\s*\[/)?.[1] ?? "-";
+  return `${node.indent}${bullet} [${status}] ${text}`;
 }
 
 /** Flatten a tree into lines in pre-order (parent, then children). */

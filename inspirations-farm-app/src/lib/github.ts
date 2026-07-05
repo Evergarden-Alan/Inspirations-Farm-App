@@ -1,127 +1,64 @@
 /**
- * GitHub REST API client wrapper.
- * All GitHub API calls go through here to keep auth and base URL centralized.
+ * High-level data service for the Inspirations Farm CMS.
+ *
+ * Orchestrates the low-level GitHub client (./github-client) and the markdown
+ * utilities (./markdown-utils) into business operations: listing / creating /
+ * archiving inspirations, appending patches, and daily-journal CRUD.
+ *
+ * External callers (API routes, the server data layer, client components)
+ * import from here; the re-exports below preserve the pre-split public API so
+ * no call site needs to change.
  */
 
-import matter from "gray-matter";
 import { getBeijingDateTimeString } from "./beijing-time";
 import { parseBeijingTime } from "./time";
+import {
+  getConfig,
+  githubFetch,
+  withConflictRetry,
+  encodeBase64,
+  decodeBase64,
+  type GitHubContentItem,
+  type FileListItem,
+} from "./github-client";
+import {
+  parseFrontmatter,
+  setFrontmatterField,
+  parseMarkdown,
+  extractTitle,
+  stripHeading,
+  parseInspirationPatches,
+  parseTasks,
+  parseDailyNotes,
+  insertSubtaskLine,
+  insertIntoDailySection,
+  insertIntoDailyNotesSection,
+  appendInspirationPatchLine,
+  type InspirationPatch,
+  type DailyTask,
+  type DailyNote,
+} from "./markdown-utils";
 
-const GITHUB_API = "https://api.github.com";
-const LINK_RE = /\[\[(\d{4}-\d{2}-\d{2}-\d{6})(?:\|(.*?))?\]\]/;
-
-function getConfig() {
-  const pat = process.env.GITHUB_PAT;
-  const owner = process.env.REPO_OWNER;
-  const repo = process.env.REPO_NAME;
-
-  if (!pat || !owner || !repo) {
-    throw new Error(
-      "Missing required environment variables: GITHUB_PAT, REPO_OWNER, REPO_NAME"
-    );
-  }
-
-  return { pat, owner, repo };
-}
-
-/** Error thrown when a GitHub write conflicts (HTTP 409) — the file's blob SHA
- *  changed between our GET and PUT. Callers can catch this and retry. */
-export class GitHubConflictError extends Error {
-  status = 409;
-  constructor(message: string) {
-    super(message);
-    this.name = "GitHubConflictError";
-  }
-}
-
-/** Retry a write operation on HTTP 409 (stale SHA). The operation `fn` must
- *  re-GET the fresh SHA + content internally before its PUT, so a retry picks up
- *  the latest SHA. The optional `initialSha` is passed to `fn` on the first
- *  attempt (callers that already hold a SHA); subsequent attempts use the SHA
- *  fetched inside `fn`. Max 2 attempts. */
-async function withConflictRetry<T>(
-  fn: (currentSha?: string) => Promise<T>,
-  initialSha?: string
-): Promise<T> {
-  let lastErr: unknown;
-  for (let attempt = 0; attempt < 2; attempt++) {
-    try {
-      return await fn(attempt === 0 ? initialSha : undefined);
-    } catch (err: unknown) {
-      lastErr = err;
-      if (err instanceof GitHubConflictError) {
-        // Stale SHA — retry; fn will re-GET the fresh SHA.
-        continue;
-      }
-      throw err;
-    }
-  }
-  throw lastErr;
-}
-
-async function githubFetch<T = unknown>(
-  path: string,
-  options: RequestInit = {}
-): Promise<T> {
-  const { pat } = getConfig();
-  const url = `${GITHUB_API}${path}`;
-
-  const res = await fetch(url, {
-    ...options,
-    cache: "no-store",
-    headers: {
-      Authorization: `Bearer ${pat}`,
-      Accept: "application/vnd.github+json",
-      "X-GitHub-Api-Version": "2022-11-28",
-      ...options.headers,
-    },
-  });
-
-  if (!res.ok) {
-    const body = await res.text();
-    // 409 = stale SHA (someone wrote between our GET and PUT). Surface as a
-    // typed error so callers can re-fetch the SHA and retry the write.
-    if (res.status === 409) {
-      throw new GitHubConflictError(
-        `GitHub API error 409: ${body.slice(0, 500)}`
-      );
-    }
-    throw new Error(
-      `GitHub API error ${res.status}: ${body.slice(0, 500)}`
-    );
-  }
-
-  return res.json() as Promise<T>;
-}
-
-/** Normalise a frontmatter `date` value to YYYY-MM-DD. Accepts ISO strings
- *  (e.g. "2026-06-08T17:15:00") and plain dates ("2026-06-26"). Falls back to
- *  the raw string if it doesn't look like a date. */
-function normalizeDateString(value: string): string {
-  const match = value.match(/^(\d{4}-\d{2}-\d{2})/);
-  return match ? match[1] : value;
-}
+// ── Re-export the pre-split public API (keeps external imports working) ──
+export { GitHubConflictError, type GitHubContentItem, type FileListItem } from "./github-client";
+export {
+  parseMarkdown,
+  extractTitle,
+  stripHeading,
+  parseInspirationPatches,
+  parseTasks,
+  computeParents,
+  parseDailyNotes,
+  insertSubtaskLine,
+  insertIntoDailySection,
+  insertIntoDailyNotesSection,
+  type ParsedMarkdown,
+  type InspirationPatch,
+  type DailyTask,
+  type DailyNote,
+} from "./markdown-utils";
 
 // ── Types ──────────────────────────────────────────────
-
-export interface GitHubContentItem {
-  name: string;
-  path: string;
-  sha: string;
-  size: number;
-  url: string;
-  html_url: string;
-  git_url: string;
-  download_url: string | null;
-  type: "file" | "dir";
-}
-
-export interface FileListItem {
-  name: string;
-  path: string;
-  sha: string;
-  size: number;
-}
 
 export interface InspirationItem {
   name: string;
@@ -137,12 +74,27 @@ export interface InspirationItem {
   patches?: InspirationPatch[]; // parsed from ## 追加记录 section
 }
 
-export interface InspirationPatch {
-  time: string;   // "YYYY-MM-DD HH:mm" — full form after normalization
-  content: string;
+export interface DailyJournal {
+  exists: boolean;
+  path?: string;
+  sha?: string;
+  content?: string;
+  date?: string;
+  tasks?: DailyTask[];
+  notes?: DailyNote[];
 }
 
-// ── API methods ────────────────────────────────────────
+// ── Helpers ────────────────────────────────────────────
+
+/** Normalise a frontmatter `date` value to YYYY-MM-DD. Accepts ISO strings
+ *  (e.g. "2026-06-08T17:15:00") and plain dates ("2026-06-26"). Falls back to
+ *  the raw string if it doesn't look like a date. */
+function normalizeDateString(value: string): string {
+  const match = value.match(/^(\d{4}-\d{2}-\d{2})/);
+  return match ? match[1] : value;
+}
+
+// ── Inspirations ───────────────────────────────────────
 
 /** List files in the Inspirations/ directory */
 export async function listInspirations(): Promise<FileListItem[]> {
@@ -179,7 +131,7 @@ export async function createInspiration(
     "",
     `# ${content}`,
   ].join("\n");
-  const encoded = Buffer.from(yamlBlock, "utf-8").toString("base64");
+  const encoded = encodeBase64(yamlBlock);
 
   const fullPath = `Inspirations/${filename}`;
 
@@ -198,8 +150,6 @@ export async function createInspiration(
   return { path: result.content.path, url: result.content.html_url };
 }
 
-// ── Content fetching ───────────────────────────────────
-
 /** Fetch and decode a single file's raw text content from the repo */
 export async function getFileContent(filePath: string): Promise<string> {
   const { owner, repo } = getConfig();
@@ -211,92 +161,8 @@ export async function getFileContent(filePath: string): Promise<string> {
     throw new Error(`Unexpected encoding: ${data.encoding}`);
   }
   console.log(`[getFileContent] OK → ${filePath} (${data.content.length} chars b64)`);
-  return Buffer.from(data.content, "base64").toString("utf-8");
+  return decodeBase64(data.content);
 }
-
-// ── Markdown parsing ───────────────────────────────────
-
-export interface ParsedMarkdown {
-  frontmatter: Record<string, string | string[]>;
-  body: string;
-}
-
-/** Parse YAML frontmatter and body from a markdown string */
-export function parseMarkdown(text: string): ParsedMarkdown {
-  const { data, content } = matter(text);
-  return { frontmatter: data as Record<string, string | string[]>, body: content.trim() };
-}
-
-/** Extract the first # heading text from a markdown body */
-export function extractTitle(body: string): string {
-  const match = body.match(/^#\s+(.*)$/m);
-  return match ? match[1].trim() : "";
-}
-
-/** Strip the first # heading line from the body */
-export function stripHeading(body: string): string {
-  return body.replace(/^#\s+.*\n?/m, "").trim();
-}
-
-// ── Patch (追加记录) parsing ────────────────────────────
-
-/**
- * Split an inspiration body at ## 追加记录.
- * Returns the content above the section and parsed patches from below it.
- * For HH:mm-only timestamps, the createdAt date is prepended.
- */
-export function parseInspirationPatches(
-  body: string,
-  createdAt: string
-): { content: string; patches: InspirationPatch[] } {
-  const lines = body.split("\n");
-
-  // Find ## 追加记录 as a whole line (any heading level #)
-  let headingLine = -1;
-  for (let i = 0; i < lines.length; i++) {
-    if (/^#+\s+追加记录\s*$/.test(lines[i])) {
-      headingLine = i;
-      break;
-    }
-  }
-
-  if (headingLine === -1) {
-    return { content: body, patches: [] };
-  }
-
-  // Content is everything above the heading
-  const content = lines.slice(0, headingLine).join("\n").trim();
-
-  // Find section end — next heading (# or ##) or EOF
-  let sectionEnd = lines.length;
-  for (let i = headingLine + 1; i < lines.length; i++) {
-    const t = lines[i].trim();
-    if (/^#+\s/.test(t)) {
-      sectionEnd = i;
-      break;
-    }
-  }
-
-  // Parse patch lines: - **[YYYY-MM-DD HH:mm]** text  or  - **[HH:mm]** text
-  const createdDate = createdAt.slice(0, 10); // "YYYY-MM-DD"
-  const patchRe = /^-\s+\*\*(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}|\d{2}:\d{2})\*\*\s+(.*)$/;
-  const patches: InspirationPatch[] = [];
-
-  for (let i = headingLine + 1; i < sectionEnd; i++) {
-    const match = lines[i].match(patchRe);
-    if (match) {
-      const rawTime = match[1];
-      const text = match[2].trim();
-      const fullTime =
-        rawTime.length === 5 ? `${createdDate} ${rawTime}` : rawTime;
-      patches.push({ time: fullTime, content: text });
-    }
-  }
-
-  return { content, patches };
-}
-
-// ── Combined listing ───────────────────────────────────
 
 /** List inspirations with full content and parsed metadata */
 export async function listInspirationsWithContent(): Promise<
@@ -351,8 +217,6 @@ export async function listInspirationsWithContent(): Promise<
   return items;
 }
 
-// ── Delete ────────────────────────────────────────────
-
 /** Delete a file from the repo by path and sha */
 export async function deleteFile(
   filePath: string,
@@ -368,8 +232,6 @@ export async function deleteFile(
     headers: { "Content-Type": "application/json" },
   });
 }
-
-// ── Update status ─────────────────────────────────────
 
 /** Update the status field in a file's YAML frontmatter */
 export async function updateFileStatus(
@@ -389,14 +251,13 @@ export async function updateFileStatus(
     if (data.encoding !== "base64") {
       throw new Error(`Unexpected encoding: ${data.encoding}`);
     }
-    const raw = Buffer.from(data.content, "base64").toString("utf-8");
+    const raw = decodeBase64(data.content);
 
-    // Replace the status line in YAML frontmatter
-    const updated = raw.replace(
-      /^status:\s*.*$/m,
-      `status: ${newStatus}`
-    );
-    const encoded = Buffer.from(updated, "utf-8").toString("base64");
+    // Update status via structured frontmatter, not a whole-document regex,
+    // so a body line containing "status:" is never touched. The date-safe
+    // helper keeps `create` (and other date-like fields) as strings.
+    const updated = setFrontmatterField(raw, "status", newStatus);
+    const encoded = encodeBase64(updated);
 
     const result = await githubFetch<{ content: { path: string; html_url: string } }>(
       `/repos/${owner}/${repo}/contents/${filePath}`,
@@ -415,8 +276,6 @@ export async function updateFileStatus(
   });
 }
 
-// ── Archive inspiration ────────────────────────────────
-
 /** Set an inspiration's status to completed by file path */
 export async function archiveInspiration(filePath: string): Promise<void> {
   return withConflictRetry(async () => {
@@ -432,11 +291,12 @@ export async function archiveInspiration(filePath: string): Promise<void> {
     if (data.encoding !== "base64") {
       throw new Error(`Unexpected encoding: ${data.encoding}`);
     }
-    const raw = Buffer.from(data.content, "base64").toString("utf-8");
+    const raw = decodeBase64(data.content);
 
-    // Replace status to completed
-    const updated = raw.replace(/^status:\s*.*$/m, "status: completed");
-    const encoded = Buffer.from(updated, "utf-8").toString("base64");
+    // Set status to completed via structured frontmatter — protects body text
+    // containing "status:".
+    const updated = setFrontmatterField(raw, "status", "completed");
+    const encoded = encodeBase64(updated);
 
     await githubFetch(`/repos/${owner}/${repo}/contents/${filePath}`, {
       method: "PUT",
@@ -463,54 +323,79 @@ export async function syncIdeasState(
   ideaIds: string[]
 ): Promise<{ synced: number; errors: string[] }> {
   const { owner, repo } = getConfig();
+
+  // Run all updates concurrently — each id maps to a distinct file, so there
+  // are no cross-item races. Previously a sequential for..of awaited each
+  // withConflictRetry one at a time (2+ API calls per item in series), which
+  // risked Vercel function timeouts on larger batches.
+  const results = await Promise.allSettled(
+    ideaIds.map(
+      async (id): Promise<{ id: string; synced: boolean; error?: string }> => {
+        const filePath = `Inspirations/${id}.md`;
+        try {
+          await withConflictRetry(async () => {
+            const data = await githubFetch<{
+              sha: string;
+              content: string;
+              encoding: string;
+            }>(`/repos/${owner}/${repo}/contents/${filePath}`);
+
+            if (data.encoding !== "base64") {
+              throw new Error(`unexpected encoding ${data.encoding}`);
+            }
+            const raw = decodeBase64(data.content);
+
+            // Idempotency check + write go through the date-safe frontmatter
+            // helpers, so body text containing "status:" can't trigger a false
+            // skip or be mutated.
+            if (parseFrontmatter(raw).status === "completed") {
+              return; // already completed (idempotent) — counts as synced
+            }
+            const updated = setFrontmatterField(raw, "status", "completed");
+            const encoded = encodeBase64(updated);
+
+            await githubFetch(`/repos/${owner}/${repo}/contents/${filePath}`, {
+              method: "PUT",
+              body: JSON.stringify({
+                message: `Auto-sync: mark inspiration as completed`,
+                content: encoded,
+                sha: data.sha,
+              }),
+              headers: { "Content-Type": "application/json" },
+            });
+          });
+
+          console.log(`[syncIdeasState] Archived: ${id}`);
+          return { id, synced: true };
+        } catch (err: unknown) {
+          const msg = err instanceof Error ? err.message : "Unknown error";
+          // 404 = file doesn't exist (maybe already deleted) — not an error
+          if (msg.includes("404")) {
+            console.log(`[syncIdeasState] ${id} not found (already gone)`);
+            return { id, synced: false };
+          }
+          return { id, synced: false, error: msg };
+        }
+      }
+    )
+  );
+
+  // Tally: synced counts successes (incl. idempotent no-ops); 404 skips are
+  // neither synced nor errors; anything else goes to errors.
   let synced = 0;
   const errors: string[] = [];
-
-  // Process sequentially to avoid race conditions on the same repo
-  for (const id of ideaIds) {
-    const filePath = `Inspirations/${id}.md`;
-    try {
-      await withConflictRetry(async () => {
-        const data = await githubFetch<{
-          sha: string;
-          content: string;
-          encoding: string;
-        }>(`/repos/${owner}/${repo}/contents/${filePath}`);
-
-        if (data.encoding !== "base64") {
-          throw new Error(`unexpected encoding ${data.encoding}`);
-        }
-        const raw = Buffer.from(data.content, "base64").toString("utf-8");
-
-        // Skip if already completed (idempotent)
-        if (/^status:\s*completed\s*$/m.test(raw)) {
-          return;
-        }
-
-        const updated = raw.replace(/^status:\s*.*$/m, "status: completed");
-        const encoded = Buffer.from(updated, "utf-8").toString("base64");
-
-        await githubFetch(`/repos/${owner}/${repo}/contents/${filePath}`, {
-          method: "PUT",
-          body: JSON.stringify({
-            message: `Auto-sync: mark inspiration as completed`,
-            content: encoded,
-            sha: data.sha,
-          }),
-          headers: { "Content-Type": "application/json" },
-        });
-      });
-
-      synced++;
-      console.log(`[syncIdeasState] Archived: ${id}`);
-    } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : "Unknown error";
-      // 404 = file doesn't exist (maybe already deleted) — not an error
-      if (msg.includes("404")) {
-        console.log(`[syncIdeasState] ${id} not found (already gone)`);
-        continue;
-      }
-      errors.push(`${id}: ${msg}`);
+  for (const r of results) {
+    if (r.status === "fulfilled") {
+      const v = r.value;
+      if (v.synced) synced++;
+      else if (v.error) errors.push(`${v.id}: ${v.error}`);
+      // else: 404 skip — neither synced nor an error
+    } else {
+      // Defensive — the inner async catches everything, so this only fires if
+      // the closure itself rejected unexpectedly.
+      const reason =
+        r.reason instanceof Error ? r.reason.message : String(r.reason);
+      errors.push(`unknown: ${reason}`);
     }
   }
 
@@ -540,49 +425,12 @@ export async function appendInspirationPatch(
   if (data.encoding !== "base64") {
     throw new Error(`Unexpected encoding: ${data.encoding}`);
   }
-  const raw = Buffer.from(data.content, "base64").toString("utf-8");
+  const raw = decodeBase64(data.content);
 
-  const sectionHeading = "## 追加记录";
   const timeStr = getBeijingDateTimeString().slice(0, 16); // "YYYY-MM-DD HH:mm"
   const patchLine = `- **${timeStr}** ${patchContent}`;
-
-  let updated: string;
-  const lines = raw.split("\n");
-
-  // Find ## 追加记录 section (any heading level #)
-  let headingLine = -1;
-  for (let i = 0; i < lines.length; i++) {
-    if (/^#+\s+追加记录\s*$/.test(lines[i])) {
-      headingLine = i;
-      break;
-    }
-  }
-
-  if (headingLine !== -1) {
-    // Section exists — find its end, insert before it
-    let sectionEnd = lines.length;
-    for (let i = headingLine + 1; i < lines.length; i++) {
-      const t = lines[i].trim();
-      if (/^#+\s/.test(t)) {
-        sectionEnd = i;
-        break;
-      }
-    }
-
-    // Insert before trailing blank lines
-    let insertAt = sectionEnd;
-    while (insertAt > headingLine + 1 && lines[insertAt - 1].trim() === "") {
-      insertAt--;
-    }
-
-    lines.splice(insertAt, 0, patchLine);
-    updated = lines.join("\n");
-  } else {
-    // No section — append at end
-    updated = raw.trimEnd() + `\n\n${sectionHeading}\n\n${patchLine}\n`;
-  }
-
-  const encoded = Buffer.from(updated, "utf-8").toString("base64");
+  const updated = appendInspirationPatchLine(raw, patchLine);
+  const encoded = encodeBase64(updated);
 
   const result = await githubFetch<{ content: { sha: string } }>(
     `/repos/${owner}/${repo}/contents/${filePath}`,
@@ -605,84 +453,6 @@ export async function appendInspirationPatch(
 
 // ── Daily Journal ─────────────────────────────────────
 
-export interface DailyTask {
-  id: number;
-  parentId: number | null;
-  text: string; // raw text after "- [ ] " for markdown reconstruction
-  displayText: string; // text shown in the UI (alias or original)
-  sourceIdeaId: string | null; // extracted from [[timestamp|alias]] or null
-  done: boolean;
-  indentLevel: number;
-  indent: string;
-  lineNumber: number;
-}
-
-export interface DailyJournal {
-  exists: boolean;
-  path?: string;
-  sha?: string;
-  content?: string;
-  date?: string;
-  tasks?: DailyTask[];
-  notes?: DailyNote[];
-}
-
-function calcIndent(ws: string): { level: number; raw: string } {
-  // Normalise tabs to 2 spaces so mixed whitespace (e.g. \t + spaces) is
-  // handled correctly.  Then every 2 spaces = 1 indent level.
-  const normalised = ws.replace(/\t/g, "  ");
-  // Round (not floor) so odd-space indents (3 spaces) don't drop a level.
-  return { level: Math.round(normalised.length / 2), raw: ws };
-}
-
-export function parseTasks(markdown: string): DailyTask[] {
-  const lines = markdown.split("\n");
-  const tasks: DailyTask[] = [];
-  let id = 0;
-  for (let lineNum = 0; lineNum < lines.length; lineNum++) {
-    const line = lines[lineNum];
-    // [ ] | [x] | [>] — '>' marks partially-done rollover tasks (kept as undone).
-    const match = line.match(/^(\s*)-\s*\[([ xX>])\]\s+(.*)$/);
-    if (match) {
-      const { level, raw } = calcIndent(match[1]);
-      const rawText = match[3].trim();
-
-      // Parse [[timestamp|alias]] double-bracket link
-      const linkMatch = rawText.match(LINK_RE);
-      const sourceIdeaId = linkMatch ? linkMatch[1] : null;
-      const displayText = linkMatch
-        ? (linkMatch[2] || linkMatch[1])
-        : rawText;
-
-      tasks.push({
-        id: id++,
-        parentId: null,
-        done: match[2].toLowerCase() === "x",
-        text: rawText,
-        displayText,
-        sourceIdeaId,
-        indentLevel: level,
-        indent: raw,
-        lineNumber: lineNum,
-      });
-    }
-  }
-  return computeParents(tasks);
-}
-
-/** Assign parentId to each task based on indentLevel */
-export function computeParents(tasks: DailyTask[]): DailyTask[] {
-  const stack: { id: number; level: number }[] = [];
-  for (const task of tasks) {
-    while (stack.length > 0 && stack[stack.length - 1].level >= task.indentLevel) {
-      stack.pop();
-    }
-    task.parentId = stack.length > 0 ? stack[stack.length - 1].id : null;
-    stack.push({ id: task.id, level: task.indentLevel });
-  }
-  return tasks;
-}
-
 /** Get or check existence of the daily journal for a given date */
 export async function getDailyJournal(date: string): Promise<DailyJournal> {
   const { owner, repo } = getConfig();
@@ -698,7 +468,13 @@ export async function getDailyJournal(date: string): Promise<DailyJournal> {
     if (data.encoding !== "base64") {
       throw new Error(`Unexpected encoding: ${data.encoding}`);
     }
-    const raw = Buffer.from(data.content, "base64").toString("utf-8");
+    // Normalise CRLF/CR → LF up front. Every downstream consumer (parseTasks,
+    // cascade, rollover, insertSubtaskLine, parseDailyNotes) splits on "\n" and
+    // anchors regexes with "$", which would silently drop tasks/notes on CRLF
+    // files (Obsidian on Windows writes CRLF). Doing it here also keeps
+    // parseTasks' lineNumber aligned with the line indices cascade and
+    // insertSubtaskLine use on the same content.
+    const raw = decodeBase64(data.content).replace(/\r\n?/g, "\n");
     const { frontmatter } = parseMarkdown(raw);
 
     const tasks = parseTasks(raw);
@@ -763,7 +539,7 @@ export async function createDailyJournal(
       "",
     ].join("\n");
 
-  const encoded = Buffer.from(template, "utf-8").toString("base64");
+  const encoded = encodeBase64(template);
   const filePath = `Journal/Daily/${date}.md`;
   console.log(`[createDailyJournal] Creating ${filePath} (customContent=${!!customContent})`);
 
@@ -791,7 +567,7 @@ export async function updateDailyJournal(
 ): Promise<{ sha: string }> {
   const { owner, repo } = getConfig();
 
-  const encoded = Buffer.from(content, "utf-8").toString("base64");
+  const encoded = encodeBase64(content);
 
   console.log(`[updateDailyJournal] PUT ${filePath} (sha=${sha})`);
   const result = await githubFetch<{ content: { sha: string } }>(
@@ -811,206 +587,43 @@ export async function updateDailyJournal(
   return { sha: result.content.sha };
 }
 
-// ── Markdown line manipulation ─────────────────────────
-
 /**
- * Insert a new subtask line into raw markdown content right after
- * the last existing subtask of the given parent task.
+ * Ensure the daily journal for `date` exists, then apply `modify` to its
+ * content and PUT the result. Retries on HTTP 409 (stale SHA — either a
+ * concurrent write or GitHub read-replica lag right after a prior write) by
+ * re-fetching fresh content + SHA and re-running `modify`.
  *
- * @param content  Full raw markdown content
- * @param parentTask  The parent task under which to insert
- * @param subtaskText  Text for the new subtask
- * @returns Updated markdown content
- */
-export function insertSubtaskLine(
-  content: string,
-  parentTask: DailyTask,
-  subtaskText: string
-): string {
-  const lines = content.split("\n");
-  const parentIndentLen = parentTask.indent.length;
-  // Preserve the parent's indent style: tabs stay tabs, spaces stay spaces.
-  const subIndent = parentTask.indent.includes("\t")
-    ? parentTask.indent + "\t"
-    : parentTask.indent + "  ";
-  const newLine = `${subIndent}- [ ] ${subtaskText}`;
-
-  // Start from the parent line, scan forward to find the last subtask
-  let insertAt = parentTask.lineNumber;
-
-  for (let i = parentTask.lineNumber + 1; i < lines.length; i++) {
-    const line = lines[i];
-    const match = line.match(/^(\s*)-\s*\[/);
-    if (match) {
-      // Task line — check if it's a deeper subtask
-      if (match[1].length > parentIndentLen) {
-        insertAt = i;
-      } else {
-        break; // back to same or shallower level — stop
-      }
-    } else if (line.trim() === "") {
-      insertAt = i; // blank line — skip over it
-    } else {
-      break; // non-task, non-blank line — stop
-    }
-  }
-
-  lines.splice(insertAt + 1, 0, newLine);
-  return lines.join("\n");
-}
-
-/**
- * Insert a new top-level task line into the "# 当日日程" section.
+ * `modify` returns the new content, or `null` to abort (e.g. a duplicate-task
+ * check). Returns `{ sha, content }` on success, or `null` if `modify`
+ * aborted.
  *
- * Algorithm:
- * 1. Find "# 当日日程" heading
- * 2. Find the next "---" or "# " heading → section end
- * 3. Insert before section end (skip trailing blank lines inside the section)
- * 4. Fallback: append to end of file if heading not found
+ * Unlike calling getDailyJournal → updateDailyJournal directly, this wraps the
+ * whole read-modify-write in withConflictRetry so a 409 doesn't surface to the
+ * user just because the GET read a stale SHA.
  */
-export function insertIntoDailySection(
-  content: string,
-  taskLine: string
-): string {
-  const lines = content.split("\n");
-
-  // Locate section start
-  let sectionStart = -1;
-  for (let i = 0; i < lines.length; i++) {
-    if (/^#+\s+当日日程\s*$/.test(lines[i])) {
-      sectionStart = i;
-      break;
+export async function modifyDailyJournal(
+  date: string,
+  modify: (content: string) => string | null
+): Promise<{ sha: string; content: string } | null> {
+  return withConflictRetry(async () => {
+    // Brief pause so GitHub's read replica can catch up after a prior write.
+    // The Contents API is eventually consistent: a GET immediately after a PUT
+    // can return a fresh-looking SHA paired with STALE content, which would let
+    // a PUT (SHA matches) overwrite recent data — silent data loss. The pause
+    // makes the subsequent read fresh; withConflictRetry then handles a stale
+    // SHA (409) on the write.
+    await new Promise((r) => setTimeout(r, 500));
+    let journal = await getDailyJournal(date);
+    if (!journal.exists) {
+      const created = await createDailyJournal(date);
+      journal = await getDailyJournal(date);
+      journal.sha = created.sha;
+      journal.path = created.path;
+      journal.content = "";
     }
-  }
-
-  // Fallback: append to end
-  if (sectionStart === -1) {
-    return content.trimEnd() + "\n" + taskLine + "\n";
-  }
-
-  // Locate section end — next "---" or "# " after sectionStart
-  let sectionEnd = lines.length;
-  for (let i = sectionStart + 1; i < lines.length; i++) {
-    const trimmed = lines[i].trim();
-    if (trimmed === "---" || /^#\s/.test(trimmed)) {
-      sectionEnd = i;
-      break;
-    }
-  }
-
-  // Back up past trailing blank lines so the new task sits just before them
-  let insertAt = sectionEnd;
-  while (insertAt > sectionStart + 1 && lines[insertAt - 1].trim() === "") {
-    insertAt--;
-  }
-
-  lines.splice(insertAt, 0, taskLine);
-  return lines.join("\n");
+    const newContent = modify(journal.content || "");
+    if (newContent === null) return null; // modifier aborted (e.g. duplicate)
+    const res = await updateDailyJournal(journal.path!, journal.sha!, newContent);
+    return { sha: res.sha, content: newContent };
+  });
 }
-
-// ── Daily Notes (今日杂记) ────────────────────────────
-
-export interface DailyNote {
-  time: string; // HH:mm
-  text: string;
-}
-
-/** Extract notes from the ## 今日杂记 section */
-export function parseDailyNotes(content: string): DailyNote[] {
-  const lines = content.split("\n");
-
-  // Locate ## 今日杂记 (any heading level #)
-  let sectionStart = -1;
-  for (let i = 0; i < lines.length; i++) {
-    if (/^#+\s+今日杂记\s*$/.test(lines[i])) {
-      sectionStart = i;
-      break;
-    }
-  }
-  if (sectionStart === -1) return [];
-
-  // Find section end
-  let sectionEnd = lines.length;
-  for (let i = sectionStart + 1; i < lines.length; i++) {
-    const t = lines[i].trim();
-    if (/^#\s/.test(t) || t === "---") {
-      sectionEnd = i;
-      break;
-    }
-  }
-
-  const notes: DailyNote[] = [];
-  const noteRe = /^-\s+\*\*(\d{2}:\d{2})\*\*\s+(.*)$/;
-  for (let i = sectionStart + 1; i < sectionEnd; i++) {
-    const match = lines[i].match(noteRe);
-    if (match) {
-      notes.push({ time: match[1], text: match[2].trim() });
-    }
-  }
-  return notes;
-}
-
-/**
- * Append a timestamped note line to the ## 今日杂记 section.
- * If the section doesn't exist, creates it after # 本日总结.
- */
-export function insertIntoDailyNotesSection(
-  content: string,
-  time: string,
-  noteText: string
-): string {
-  const lines = content.split("\n");
-  const noteLine = `- **${time}** ${noteText}`;
-
-  // 1) Try to find ## 今日杂记 (any heading level #)
-  let sectionStart = -1;
-  for (let i = 0; i < lines.length; i++) {
-    if (/^#+\s+今日杂记\s*$/.test(lines[i])) {
-      sectionStart = i;
-      break;
-    }
-  }
-
-  if (sectionStart === -1) {
-    // Create the section after # 本日总结 (any heading level #)
-    let summaryIdx = -1;
-    for (let i = 0; i < lines.length; i++) {
-      if (/^#+\s+本日总结\s*$/.test(lines[i])) {
-        summaryIdx = i;
-        break;
-      }
-    }
-    if (summaryIdx === -1) {
-      // Fallback: append to end
-      return content.trimEnd() + "\n\n## 今日杂记\n\n" + noteLine + "\n";
-    }
-    // Insert ## 今日杂记 heading + note after # 本日总结
-    // Find the next --- or # heading to place the heading before
-    let insertAt = summaryIdx + 1;
-    while (insertAt < lines.length && lines[insertAt].trim() === "") {
-      insertAt++;
-    }
-    lines.splice(insertAt, 0, "", "## 今日杂记", "", noteLine);
-    return lines.join("\n");
-  }
-
-  // 2) Find section end
-  let sectionEnd = lines.length;
-  for (let i = sectionStart + 1; i < lines.length; i++) {
-    const t = lines[i].trim();
-    if (/^#\s/.test(t) || t === "---") {
-      sectionEnd = i;
-      break;
-    }
-  }
-
-  // 3) Insert before section end, skipping trailing blanks
-  let insertAt = sectionEnd;
-  while (insertAt > sectionStart + 1 && lines[insertAt - 1].trim() === "") {
-    insertAt--;
-  }
-
-  lines.splice(insertAt, 0, noteLine);
-  return lines.join("\n");
-}
-

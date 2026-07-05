@@ -34,3 +34,6 @@ yarn-error.log*
 
 # Claude Code — keep sessions out of repo
 .claude/sessions/
+
+
+resources/

@@ -4,6 +4,7 @@ import {
   getDailyJournal,
   createDailyJournal,
   updateDailyJournal,
+  modifyDailyJournal,
   insertIntoDailySection,
   insertIntoDailyNotesSection,
 } from "@/lib/github";
@@ -62,27 +63,15 @@ export async function POST(req: NextRequest) {
       const bjTime = getBeijingDateTimeString();
       const time = bjTime.slice(11, 16);
 
-      // Ensure journal exists
-      let journal = await getDailyJournal(date);
-      if (!journal.exists) {
-        const created = await createDailyJournal(date);
-        journal = await getDailyJournal(date);
-        journal.sha = created.sha;
-        journal.path = created.path;
-        journal.content = "";
+      // Read-modify-write with 409 retry: a stale SHA (GitHub read-replica lag
+      // right after a prior write) is retried by re-fetching fresh content.
+      const result = await modifyDailyJournal(date, (c) =>
+        insertIntoDailyNotesSection(c, time, content)
+      );
+      // addNote's modifier never aborts, so result is non-null in practice.
+      if (!result) {
+        return Response.json({ ok: false, error: "Note not added" }, { status: 500 });
       }
-
-      const newContent = insertIntoDailyNotesSection(
-        journal.content || "",
-        time,
-        content
-      );
-
-      const result = await updateDailyJournal(
-        journal.path!,
-        journal.sha!,
-        newContent
-      );
 
       revalidatePath("/");
       return Response.json({ ok: true, sha: result.sha, time });
@@ -100,34 +89,20 @@ export async function POST(req: NextRequest) {
 
       const taskLine = `- [ ] [[${body.ideaId}|${body.ideaTitle}]]`;
 
-      // Ensure the journal exists
-      let journal = await getDailyJournal(date);
-      if (!journal.exists) {
-        const created = await createDailyJournal(date);
-        journal = await getDailyJournal(date);
-        journal.sha = created.sha;
-        journal.path = created.path;
-        journal.content = "";
-      }
+      // Read-modify-write with 409 retry. The modifier aborts (returns null) if
+      // the ideaId is already present (duplicate), so the dedup check is
+      // re-evaluated on each retry against fresh content.
+      const result = await modifyDailyJournal(date, (c) =>
+        c.includes(body.ideaId) ? null : insertIntoDailySection(c, taskLine)
+      );
 
-      // Dedup: check if this ideaId is already in today's tasks
-      if (journal.content && journal.content.includes(body.ideaId)) {
+      if (result === null) {
+        // Modifier aborted: ideaId already present (duplicate).
         return Response.json(
           { ok: false, error: "该灵感已在今日日程中", duplicate: true },
           { status: 409 }
         );
       }
-
-      const newContent = insertIntoDailySection(
-        journal.content || "",
-        taskLine
-      );
-
-      const result = await updateDailyJournal(
-        journal.path!,
-        journal.sha!,
-        newContent
-      );
 
       revalidatePath("/");
       return Response.json({ ok: true, sha: result.sha });

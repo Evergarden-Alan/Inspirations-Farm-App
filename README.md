@@ -1,5 +1,8 @@
 # Inspirations Farm 🌱
 
+> 🌐 Languages: **English** | [简体中文](README.zh-CN.md)  
+> 🏷️ Version: **v1.0.0**
+
 A mobile-first PWA personal inspiration management system. GitHub-backed headless CMS, installable on your phone home screen.
 
 **Live**: [todo.alanevergarden.xyz](https://todo.alanevergarden.xyz)
@@ -14,6 +17,7 @@ A mobile-first PWA personal inspiration management system. GitHub-backed headles
 | Components | shadcn/ui (base-nova) + Base UI React primitives |
 | Icons | lucide-react |
 | Markdown | gray-matter (frontmatter) + `react-markdown` + `remark-gfm` + `remark-math` + `rehype-katex` (KaTeX) |
+| Markdown AST | `mdast-util-from-markdown` + `micromark-extension-frontmatter` + `mdast-util-frontmatter` (code-block-safe section location) |
 | Backend/CMS | GitHub REST API (Markdown files) |
 | Auth | PIN lock screen + Cron secret |
 | PWA | manifest + service worker (production only) |
@@ -29,16 +33,32 @@ A mobile-first PWA personal inspiration management system. GitHub-backed headles
 - **🔗 Inspiration → Task Linking** — push inspirations to today's journal as `[[timestamp|title]]` wiki-links; backend dedup prevents double-entry; push button shows spinner + success/duplicate feedback
 - **✅ Cascade Archive** — completing a linked task auto-archives the inspiration (both via web toggle and Obsidian-side reconciliation on next page load)
 - **⏳ Relative Time** — Beijing-timezone-aware "X小时前" labels
-- **🌳 Nested Tasks** — markdown indent-parsed tree with parent-child cascade toggle (line-based, avoids false String.replace matches)
+- **🌳 Nested Tasks** — markdown indent-parsed tree with parent-child cascade toggle (line-based, avoids false String.replace matches); supports `-`, `*`, `+` task-list markers
 - **🔄 Daily Rollover** — tree-based splitting preserves parent-child relationships; `🔄` marker tags rolled-over tasks so the frontend highlights them with an amber "延期" badge
 - **🏷️ Rollover Badge** — tasks carried over from yesterday render a `延期` badge (`bg-amber-100 text-amber-700`), visually distinguishing legacy items from today's new tasks
-- **📝 Inspiration Patches** — append timestamped follow-up notes to inspirations via `## 追加记录` markdown section
+- **📝 Inspiration Patches** — append timestamped follow-up notes to inspirations via `## 追加记录` markdown section; multi-line patch content is preserved (continuation lines no longer dropped)
+- **🛡️ Code-Block-Safe Editing** — section insertion (patches, daily tasks, jottings) and parsing use mdast AST to locate headings, so a `# heading` or `---` inside a fenced code block can never mis-locate a section or corrupt the file. YAML frontmatter is parsed as a single node (YAML `#` comments aren't mistaken for headings). The rest of the file is preserved byte-for-byte (tabs, `*`/`+` bullets, blank lines) — no full re-serialize.
+- **📐 CRLF-Safe Parsing** — daily journals are normalised to LF on read, so CRLF files (e.g. from Obsidian on Windows) parse tasks/notes correctly instead of being silently dropped.
 - **📄 Rich Markdown Rendering** — `react-markdown` + `remark-gfm` + `@tailwindcss/typography`; prose styles for inspiration cards & jottings; inline-safe rendering for todo tasks (no prose, `<p>`→`<span>`, keeps flex layout)
 - **🧮 Math Rendering** — inline `$...$` and block `$$...$$` via `remark-math` + `rehype-katex`; KaTeX CSS imported globally (`globals.css`); `output: "html"` prevents exposed MathML/source text like `{\displaystyle ...}`
 - **🗒️ Daily Jottings** — timestamped notes appended to `## 今日杂记` under `# 本日总结`; rendered as a timeline on the dashboard
 - **📋 Template Support** — `Templates/Diary_Template.md` fetched from GitHub at rollover time; supports `{{date}}` / `{{DATE:YYYY-MM-DD}}` and `%%TODO_PLACEHOLDER%%` placeholders; path configurable via `DIARY_TEMPLATE_PATH` env var; falls back to built-in template on fetch failure
 - **📱 PWA** — install to home screen, offline cache, standalone mode
 - **📂 Headless CMS** — all data in your private GitHub repo as plain Markdown
+
+## Architecture
+
+The codebase is split by single-responsibility to keep the former "god object" `github.ts` maintainable:
+
+| Module | Responsibility |
+|---|---|
+| `src/lib/github-client.ts` | Low-level GitHub REST client — auth/config, `githubFetch`, `withConflictRetry` (409 retry), base64 codec, raw API response types. No business logic, no markdown. |
+| `src/lib/markdown-utils.ts` | Pure Markdown parse & manipulate — date-safe frontmatter, `parseTasks`/`computeParents`, `parseInspirationPatches`/`parseDailyNotes`, and the AST-based insertion helpers. No network, no GitHub. |
+| `src/lib/github.ts` | High-level data service — orchestrates the client + markdown-utils into business operations (list/create/archive inspirations, daily-journal CRUD, `syncIdeasState`). Re-exports the pre-split public API so callers (API routes, server data layer, client components) are unchanged. |
+
+**Markdown manipulation is AST-based.** Insertion and parsing helpers parse the document to an mdast tree to robustly locate headings/sections — fenced code blocks and YAML frontmatter are separate node types, so a `# heading` or `---` inside them can never mis-locate a section or corrupt the file. The new line is then spliced into the raw string at the AST-derived line index; the rest of the file is preserved byte-for-byte (no full re-serialize, so tabs, `*`/`+` bullets, and blank lines are untouched).
+
+**Write consistency.** Daily write paths (`add task`, `add note`) go through `modifyDailyJournal`, which wraps the whole read-modify-write in `withConflictRetry` (re-GET fresh SHA + content on a 409) and adds a brief pre-read pause so GitHub's eventually-consistent read replica can catch up — preventing both 409 failures and the silent data-loss that a "fresh SHA + stale content" read can otherwise cause.
 
 ## Project Structure
 
@@ -68,8 +88,12 @@ Inspirations_Farm/
     │   │   ├── jottings-card.tsx         # Daily jottings timeline + add-note
     │   │   └── manifest.ts               # → /manifest.webmanifest
     │   ├── components/ui/                # shadcn/ui (base-nova)
+    │   ├── types/
+    │   │   └── js-yaml.d.ts              # Minimal ambient types for js-yaml
     │   └── lib/
-    │       ├── github.ts                 # GitHub API client + markdown parsing
+    │       ├── github-client.ts          # Low-level GitHub REST client (fetch, retry, base64, types)
+    │       ├── markdown-utils.ts         # Pure Markdown parse/manipulate (AST-based section location)
+    │       ├── github.ts                 # High-level data service (orchestrates client + markdown-utils)
     │       ├── data.ts                   # Server data layer: getTodos/getInspirations/syncCompletedIdeas
     │       ├── beijing-time.ts           # Asia/Shanghai date utilities
     │       ├── time.ts                   # Survival duration + Beijing-time parser
@@ -264,3 +288,24 @@ This tree-based approach eliminates the orphan-subtask bug (where old line-by-li
 3. Add environment variables: `GITHUB_PAT`, `REPO_OWNER`, `REPO_NAME`, `APP_PIN`, `CRON_SECRET`
 4. Deploy → your custom domain serves the PWA over HTTPS
 5. Verify Cron Job is active in Vercel Dashboard → Cron Jobs
+
+## Changelog
+
+See [docs/DEVLOG.md](docs/DEVLOG.md) for the full development log.
+
+### v1.0.0 (2026-07-05)
+
+**Audit & robustness**
+- YAML `status` updates moved from regex to structured `gray-matter` (with `JSON_SCHEMA` so date-like fields such as `create` stay strings — no timezone corruption).
+- `parseInspirationPatches` preserves multi-line patch content (continuation lines were previously dropped).
+- `calcIndent` uses `Math.floor` (a stray 1-space indent no longer counts as a level); `parseTasks` accepts `-`/`*`/`+` task-list markers.
+- `syncIdeasState` runs concurrently via `Promise.allSettled` (was sequential — risked Vercel timeouts).
+- `[-+*]` task-marker support made consistent across `cascade.ts`, `rollover.ts`, `insertSubtaskLine` (bullet preserved on toggle/rebuild).
+- Daily journals normalised to LF on read — CRLF files (Obsidian on Windows) no longer drop tasks/notes silently.
+
+**Architecture**
+- `github.ts` split by SRP into `github-client.ts` (network) + `markdown-utils.ts` (markdown) + `github.ts` (business service). Public API unchanged.
+- Section insertion/parsing rewritten on mdast AST — code-block- and frontmatter-safe; byte-for-byte preservation (no full re-serialize).
+
+**Consistency**
+- `modifyDailyJournal` wraps daily read-modify-write in 409-retry + a pre-read pause, fixing rapid-successive-write 409s and the silent data-loss from GitHub's eventual consistency.

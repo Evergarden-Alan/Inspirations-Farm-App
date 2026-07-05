@@ -5,7 +5,14 @@
  * avoiding false matches from String.replace when tasks share the same text.
  */
 
-const TASK_RE = /^(\s*)-\s*\[([ xX>])\]\s+(.*)$/;
+const TASK_RE = /^(\s*)[-+*]\s*\[([ xX>])\]\s+(.*)$/;
+
+/** Leading indent + bullet (-, *, or +) + checkbox state. Captures the bullet
+ *  so toggle/set can preserve it instead of forcing "-". */
+const CHECKBOX_PREFIX_RE = /^(\s*)([-+*])\s*\[([ xX])\]/;
+
+/** A task line whose checkbox is done ([x] or [X]), any bullet. */
+const DONE_TASK_RE = /^(\s*)[-+*]\s*\[[xX]\]/;
 
 /** Count leading whitespace — normalise tabs to 2 spaces for consistent depth. */
 function countIndent(line: string): number {
@@ -18,23 +25,23 @@ function countIndent(line: string): number {
   return n;
 }
 
-/** Flip a checkbox: - [ ] ↔ - [x] */
+/** Flip a checkbox: [ ] ↔ [x], preserving the bullet (-, *, or +). */
 function toggleCheckbox(line: string): string {
-  if (/^(\s*)-\s*\[[xX]\]/.test(line)) {
-    return line.replace(/^(\s*)-\s*\[[xX]\]/, "$1- [ ]");
-  }
-  return line.replace(/^(\s*)-\s*\[ \]/, "$1- [x]");
+  const m = line.match(CHECKBOX_PREFIX_RE);
+  if (!m) return line;
+  const [, indent, bullet, state] = m;
+  const newMark = state === " " ? "x" : " ";
+  return `${indent}${bullet} [${newMark}]${line.slice(m[0].length)}`;
 }
 
-/** Set a checkbox to a specific state (- [x] or - [ ]). */
+/** Set a checkbox to a specific state ([x] or [ ]), preserving the bullet. */
 function setCheckbox(line: string, done: boolean): string {
-  if (done) {
-    if (/^(\s*)-\s*\[[xX]\]/.test(line)) return line;
-    return line.replace(/^(\s*)-\s*\[ \]/, "$1- [x]");
-  } else {
-    if (/^(\s*)-\s*\[ \]/.test(line)) return line;
-    return line.replace(/^(\s*)-\s*\[[xX]\]/, "$1- [ ]");
-  }
+  const m = line.match(CHECKBOX_PREFIX_RE);
+  if (!m) return line;
+  const [, indent, bullet, state] = m;
+  if (done === (state !== " ")) return line; // already in the desired state
+  const newMark = done ? "x" : " ";
+  return `${indent}${bullet} [${newMark}]${line.slice(m[0].length)}`;
 }
 
 /**
@@ -52,7 +59,7 @@ export function cascadeToggleAtLine(
   const lines = content.split("\n");
   const targetLine = lines[lineIndex];
   const targetIndent = countIndent(targetLine);
-  const targetWasDone = /^(\s*)-\s*\[[xX]\]/.test(targetLine);
+  const targetWasDone = DONE_TASK_RE.test(targetLine);
 
   // 1) Toggle the clicked line
   lines[lineIndex] = toggleCheckbox(targetLine);
@@ -120,7 +127,7 @@ function recomputeAncestors(
     }
 
     if (hasDescendants) {
-      const parentDone = /^(\s*)-\s*\[[xX]\]/.test(parentLine);
+      const parentDone = DONE_TASK_RE.test(parentLine);
       if (allDone !== parentDone) {
         lines[p] = setCheckbox(parentLine, allDone);
         // Continue upward with this parent as the changed node

@@ -1,5 +1,50 @@
 # Dev Log — Inspirations Farm
 
+## 2026-07-05 — v1.0.0: Audit, SRP Split, AST Refactor, Write Consistency
+
+A full hardening pass: a 5-step logic-audit fix, a single-responsibility split of the `github.ts` "god object", an mdast-AST rewrite of fragile line-regex section editing, and a fix for daily-write 409s / data-loss under GitHub's eventual consistency. Verified end-to-end in dev against the real repo.
+
+### 5-step audit (`src/lib/github.ts` + `src/types/js-yaml.d.ts`)
+1. **YAML `status` updates — regex → `gray-matter`.** `updateFileStatus` / `archiveInspiration` / `syncIdeasState` previously did `raw.replace(/^status:\s*.*$/m, ...)`, which could mutate body text containing `status:`. Now parse with `matter(raw, MATTER_OPTS)`, set `data.status`, `matter.stringify(...)`. `MATTER_OPTS` uses js-yaml `JSON_SCHEMA` so date-like values (e.g. `create: 2026-06-19 11:32:01`) stay strings instead of being coerced to `Date` (which reinterpreted Beijing time as UTC and corrupted the field on round-trip). Added minimal ambient `src/types/js-yaml.d.ts` (js-yaml ships no types).
+2. **`parseInspirationPatches` — multi-line patches.** Only the first line of a patch was captured; continuation lines were dropped. Rewrote to accumulate lines per timestamp-bullet group, then `join("\n").trim()` — trailing blanks between patches don't leak, internal blanks/indentation preserved.
+3. **`calcIndent` + `parseTasks` prefix.** `Math.round` → `Math.floor` (a stray 1-space indent no longer counts as a level). Task regex `-\s*\[` → `[-+*]\s*\[` (supports `*`/`+` markers).
+4. **`syncIdeasState` — concurrent.** Sequential `for..of` + `await withConflictRetry` → `Promise.allSettled` of concurrent per-id updates (each id = distinct file, no cross-item race). Tally: synced (incl. idempotent) / 404-skip / errors.
+5. **`withConflictRetry` cleanup.** Removed the never-used `initialSha` param and `currentSha` callback param — the GET inside the callback is necessary (write methods edit YAML, callers don't supply raw content), so there's no SHA to short-circuit with.
+
+### Two findings (consistency + CRLF)
+- **`[-+*]` task-prefix consistency.** Extended to `cascade.ts` (`TASK_RE`, `toggleCheckbox`/`setCheckbox` rewritten to capture & preserve the bullet, `DONE_TASK_RE`), `rollover.ts` (`TASK_LINE_RE` + `rebuildLine` extracts bullet from `node.raw`), `github.ts` `insertSubtaskLine`. `daily-dashboard.tsx:363` left as-is (it operates on `displayText`, prefix already stripped — a no-op).
+- **CRLF breaks task parsing.** `parseTasks` / `cascade` / `rollover` did `markdown.split("\n")`; on CRLF files each line kept a trailing `\r` and the regex `(.*)$` failed (`.` doesn't match `\r`). Fixed at the source: `getDailyJournal` normalises `\r\n?` → `\n` on read — keeps `parseTasks`' `lineNumber` aligned with the line indices `cascade` / `insertSubtaskLine` use.
+
+### SRP split of `github.ts`
+| New module | Responsibility |
+|---|---|
+| `src/lib/github-client.ts` | `getConfig`, `githubFetch`, `withConflictRetry`, `GitHubConflictError`, `encodeBase64`/`decodeBase64`, `GitHubContentItem`/`FileListItem`. Network only. |
+| `src/lib/markdown-utils.ts` | `MATTER_OPTS`, frontmatter helpers (`parseFrontmatter`/`setFrontmatterField`), `parseMarkdown`/`extractTitle`/`stripHeading`, `parseInspirationPatches`, `parseTasks`/`computeParents`/`calcIndent`, `parseDailyNotes`, insertion helpers. Pure string/AST. |
+| `src/lib/github.ts` (slimmed) | Business service: list/create/archive/sync inspirations, daily CRUD, `appendInspirationPatch`. Imports from the two modules; re-exports the pre-split public API so all 6 external callers (rollover/data/2×route/2×component) are unchanged. No longer imports `gray-matter`/`js-yaml` directly. |
+
+### AST-based section editing (`markdown-utils.ts`)
+Installed `mdast-util-from-markdown` + `micromark-extension-frontmatter` + `mdast-util-frontmatter`. The insertion helpers (`appendInspirationPatchLine`, `insertIntoDailySection`, `insertIntoDailyNotesSection`) and parsers (`parseInspirationPatches`, `parseDailyNotes`) now locate headings/sections via mdast instead of `^#+\s+某某章节$` line regexes:
+- A `# heading` or `---` inside a fenced code block can no longer mis-locate a section (code blocks are `code` nodes).
+- YAML frontmatter is one node — `#` YAML comments aren't mistaken for headings.
+- Hybrid approach: AST only **locates**; the new line is **spliced into the raw string** at the AST-derived line index. No full re-serialize → tabs, `*`/`+` bullets, blank lines preserved byte-for-byte (a full `mdast-util-to-markdown` round-trip would normalise tabs→spaces and `*`/`+`→`-`, undoing the `[-+*]` work).
+- `insertSubtaskLine` hardened with `collectCodeLines` (walks AST for `code` node ranges) so indented-code-block task-like lines can't extend the subtree scan.
+- Shared helpers: `parseMarkdownAst`, `findHeadingLine`, `findSectionEndLine` (configurable heading-depth/thematic-break predicate).
+
+### Write consistency — `modifyDailyJournal`
+Rapid successive daily writes (add task → add note) hit 409s, and a worse silent-data-loss, both from GitHub Contents API eventual consistency:
+- **stale SHA**: GET reads an old SHA right after a prior PUT → PUT old SHA → 409.
+- **stale content + fresh SHA**: GET returns a fresh-looking SHA paired with stale content → PUT (SHA matches) overwrites recent data → silent loss. Not recoverable by 409-retry (no 409 occurs).
+
+Fix: `modifyDailyJournal(date, modify)` wraps the whole ensure-exists + GET + modify + PUT in `withConflictRetry` (re-GET fresh SHA+content on 409) **and** adds a 500ms pre-read pause so the read replica catches up — preventing the stale-content write. `modify` returns `null` to abort (used for the add-task dedup check, re-evaluated on each retry against fresh content). `route.ts` addNote / add-task refactored to use it.
+
+### Dev e2e verification (self-cleaning, real repo)
+Read flow: dev server boots (Next 16.2.9 + Turbopack), `GET /api/github` (4 inspirations, `create` date-preserved), `GET /api/daily` (24/5 tasks, CRLF-normalised), `GET /` SSR — all 200, no compile errors. Write flow (throwaway test files, deleted after): inspiration create → append patch (AST) → update status (frontmatter) → archive (verified via direct GitHub API) → delete; daily create → add task (AST) → add note (AST) → delete; `syncIdeasState` 404-concurrent. Rapid-successive daily writes (task→note→note→task, no waits) all succeed with **no data loss** (verified via direct GitHub file content, 3 stable runs). TypeScript: zero errors.
+
+### Known residual
+`PUT /api/daily` (client toggle / add-subtask) still calls `updateDailyJournal` directly — the client computes the content, so the server can't re-apply the modification on a 409. Concurrent-edit 409s there need client-side retry (re-GET → re-toggle → re-PUT) in `daily-dashboard.tsx`; not in scope for v1.0.
+
+---
+
 ## 2026-06-19 — Phases 1–3 Complete
 
 ### Scaffold & Config
