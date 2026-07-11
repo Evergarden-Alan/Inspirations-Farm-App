@@ -33,7 +33,9 @@ yarn-error.log*
 .pnpm-debug.log*
 
 # Claude Code — keep sessions out of repo
-.claude/sessions/
+.claude/
+.cc-config/
+.kiro/
 
 
 resources/

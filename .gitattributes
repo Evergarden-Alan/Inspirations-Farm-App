@@ -1,0 +1,4 @@
+# Normalize all text files to LF line endings, both in the repo and on
+# checkout. Prevents CRLF/LF churn (Obsidian on Windows writes CRLF) from
+# producing whole-file diffs and from desyncing daily-journal content.
+* text=auto eol=lf
