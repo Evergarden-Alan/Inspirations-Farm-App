@@ -243,6 +243,32 @@ function flattenTree(node: TaskNode): string[] {
   return lines;
 }
 
+/** Re-emit task lines with indentation normalized to one tab per tree-depth
+ *  (top-level = 0 tabs). Unifies rollover output with the web app's tab
+ *  convention regardless of the source file's tab/space mix, so rolled-over
+ *  tasks and web-created tasks share one indent style. Also collapses any
+ *  non-zero "top-level" indent to 0, preventing a migrated task from nesting
+ *  under an unrelated sibling. Bullet, checkbox state, text, and the 🔄
+ *  rollover marker are preserved; only leading whitespace is rewritten.
+ *
+ *  `lines` is expected to contain only task checkbox lines (as produced by
+ *  splitTree); parseTaskTree drops any non-task lines. */
+function normalizeTaskLines(lines: string[]): string[] {
+  const roots = parseTaskTree(lines);
+  const out: string[] = [];
+  const walk = (nodes: TaskNode[], depth: number) => {
+    for (const n of nodes) {
+      // Keep everything from the bullet onward; replace leading whitespace
+      // with `depth` tabs.
+      const rest = n.raw.replace(/^\s*([-+*]\s*\[[ xX>]\].*)$/, "$1");
+      out.push(`${"\t".repeat(depth)}${rest}`);
+      walk(n.children, depth + 1);
+    }
+  };
+  walk(roots, 0);
+  return out;
+}
+
 // ── Content Reconstruction ────────────────────────────────
 
 /**
@@ -525,7 +551,15 @@ export async function executeRollover(
 
     // ── 3) Split tree into yesterday / tomorrow ──────────
     log(`Step 3: Splitting task tree...`);
-    const { yesterdayLines, tomorrowLines, undoneCount } = splitTree(roots);
+    const split = splitTree(roots);
+    // Normalize only the lines migrating to tomorrow (the journal the user
+    // actively works in) to the tab convention. The source (yesterday) keeps
+    // its original indentation so historical journals aren't rewritten by
+    // rollover; mixed indent there is left for the user to clean up in
+    // Obsidian, or normalizes next time that task rolls over.
+    const yesterdayLines = split.yesterdayLines;
+    const tomorrowLines = normalizeTaskLines(split.tomorrowLines);
+    const undoneCount = split.undoneCount;
     log(
       `Split complete: ${yesterdayLines.length} lines stay in source, ` +
         `${tomorrowLines.length} lines migrate to target (${undoneCount} undone trees)`

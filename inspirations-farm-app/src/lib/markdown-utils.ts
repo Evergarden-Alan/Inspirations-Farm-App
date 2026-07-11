@@ -414,10 +414,12 @@ export function insertSubtaskLine(
   // code block can't extend the subtree scan.
   const codeLines = collectCodeLines(parseMarkdownAst(content));
   const parentIndentLen = parentTask.indent.length;
-  // Preserve the parent's indent style: tabs stay tabs, spaces stay spaces.
-  const subIndent = parentTask.indent.includes("\t")
-    ? parentTask.indent + "\t"
-    : parentTask.indent + "  ";
+  // Always indent subtasks one tab per level (top-level parent -> "\t",
+  // level-1 parent -> "\t\t"). This matches the rollover output's tab
+  // convention and avoids tab/space mixes when the parent was authored in
+  // Obsidian (tabs) vs the web app. Derived from indentLevel so the parent's
+  // raw tab/space characters don't leak into the child's indent.
+  const subIndent = "\t".repeat(parentTask.indentLevel + 1);
   const newLine = `${subIndent}- [ ] ${subtaskText}`;
 
   // Start from the parent line, scan forward to find the last subtask
