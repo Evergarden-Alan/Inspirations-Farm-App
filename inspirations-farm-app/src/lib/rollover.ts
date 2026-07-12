@@ -13,9 +13,10 @@ import {
 } from "./beijing-time";
 import {
   getDailyJournal,
-  getFileContent,
   createDailyJournal,
   updateDailyJournal,
+  loadDiaryTemplate,
+  stripStalePlaceholder,
 } from "./github";
 
 export interface RolloverResult {
@@ -36,8 +37,6 @@ export interface RolloverOptions {
 }
 
 const ROLLOVER_LOG_PREFIX = "[rollover]" as const;
-const TEMPLATE_PATH =
-  process.env.DIARY_TEMPLATE_PATH || "Templates/Diary_Template.md";
 
 // ── Tree Types ────────────────────────────────────────────
 
@@ -286,52 +285,33 @@ function replaceSectionContent(
   return before.join("\n") + body + after.join("\n");
 }
 
-/**
- * Insert task lines into the # 当日日程 section of the target content.
- * Appends lines at the end of the section (before trailing blanks / next section).
- */
-function insertIntoSection(content: string, lines: string[]): string {
-  const allLines = content.split("\n");
-
-  // Find section heading
-  let sectionStart = -1;
-  for (let i = 0; i < allLines.length; i++) {
-    if (SECTION_HEADING_RE.test(allLines[i])) {
-      sectionStart = i;
-      break;
-    }
-  }
-
-  if (sectionStart === -1) {
-    // No section heading — append to end
-    return content.trimEnd() + "\n" + lines.join("\n") + "\n";
-  }
-
-  // Find section end — next "---" or any heading ("# ...") after sectionStart
-  let sectionEnd = allLines.length;
-  for (let i = sectionStart + 1; i < allLines.length; i++) {
-    const t = allLines[i].trim();
-    if (t === "---" || /^#+\s/.test(t)) {
-      sectionEnd = i;
-      break;
-    }
-  }
-
-  // Back up past trailing blank lines
-  let insertAt = sectionEnd;
-  while (insertAt > sectionStart + 1 && allLines[insertAt - 1].trim() === "") {
-    insertAt--;
-  }
-
-  allLines.splice(insertAt, 0, ...lines);
-  return allLines.join("\n");
-}
 
 // ── Section Merge (target-exists path) ───────────────────
 
-/** Normalize task text for header matching: trim and strip the 🔄 rollover marker. */
+/**
+ * Subject-name aliases for rollover merge matching. The diary template lists
+ * daily subjects in Chinese (数学, 计网, ...) while rolled-over tasks often
+ * carry the user's English shorthand (Math, CN, ...). Mapping both to one
+ * canonical key lets a migrated "Math 🔄" merge under a template "数学" instead
+ * of duplicating. Lookup is case-insensitive on the full task text (after
+ * stripping 🔄); only exact subject-name hits canonicalize, so subtask text
+ * like "4.3 第二换元积分法" is left untouched. Extend as new subjects appear.
+ */
+const SUBJECT_ALIASES: Record<string, string> = {
+  math: "math", 数学: "math",
+  cn: "cn", 计网: "cn", 计算机网络: "cn", 网络: "cn",
+  co: "co", 计组: "co", 计算机组成: "co", 计算机组成原理: "co",
+  os: "os", 操作系统: "os",
+  english: "english", 英语: "english",
+};
+
+/**
+ * Normalize task text for merge matching: strip the 🔄 rollover marker, trim,
+ * and canonicalize known subject aliases (数学<->Math, 计网<->CN, ...) so the
+ * same subject authored in either language matches as one block. */
 function normalizeTaskText(text: string): string {
-  return text.replace(/🔄/g, "").trim();
+  const stripped = text.replace(/🔄/g, "").trim();
+  return SUBJECT_ALIASES[stripped.toLowerCase()] ?? stripped;
 }
 
 /** Strip any 🔄 rollover marker (and surrounding whitespace) from a task line.
@@ -339,18 +319,6 @@ function normalizeTaskText(text: string): string {
  *  completed task should never display the "延期" badge. */
 function stripRolloverMarker(line: string): string {
   return line.replace(/\s*🔄\s*/g, " ").replace(/\s+$/, "");
-}
-
-/** Remove stale `%%TODO_PLACEHOLDER%%` markers that survive when a journal was
- *  created from the template (placeholder never expanded) and later receives a
- *  rollover merge. Drops the whole line if it is only the placeholder; otherwise
- *  removes the token inline. */
-function stripStalePlaceholder(content: string): string {
-  return content
-    .split("\n")
-    .filter((line) => line.trim() !== "%%TODO_PLACEHOLDER%%")
-    .map((line) => line.replace(/%%TODO_PLACEHOLDER%%/g, ""))
-    .join("\n");
 }
 
 /** Find the start index of the top-level task block whose last task line is
@@ -383,7 +351,6 @@ function findBlockStart(
  */
 function mergeIntoSection(content: string, incoming: string[]): string {
   const allLines = content.split("\n");
-
   // Locate # 当日日程 section heading
   let sectionStart = -1;
   for (let i = 0; i < allLines.length; i++) {
@@ -393,7 +360,7 @@ function mergeIntoSection(content: string, incoming: string[]): string {
     }
   }
   if (sectionStart === -1) {
-    // No section heading — append to end (matches insertIntoSection fallback)
+    // No section heading — append to end (mergeIntoSection fallback for a section-less journal)
     return content.trimEnd() + "\n" + incoming.join("\n") + "\n";
   }
 
@@ -480,8 +447,14 @@ function mergeIntoSection(content: string, incoming: string[]): string {
       if (descendants.length > 0) {
         ops.push({ at: blockEnd + 1, lines: descendants });
       }
+    } else if (blockEndByHeader.has(key)) {
+      // Leaf root (no descendants) whose header already exists in the target.
+      // Skip it: the existing header already represents this subject. Merging a
+      // leaf would wrongly nest it as a child, and appending would duplicate
+      // the header - so a rolled-over bare subject like "408" is absorbed into
+      // the target's existing "408" rather than echoed as a "408 🔄" dupe.
     } else {
-      // No match, or leaf root that would self-nest — append whole tree as new root
+      // No match - append whole tree as a new root
       append.push(...flattenTree(root));
     }
   }
@@ -502,6 +475,100 @@ function mergeIntoSection(content: string, incoming: string[]): string {
   }
 
   return allLines.join("\n");
+}
+
+// ── Target Write (create-or-merge, race-safe) ────────────
+
+/** Did `createDailyJournal` fail because the file already exists? The Contents
+ *  API returns 422 ("sha wasn't supplied") for a PUT on an existing path - this
+ *  is how we detect a create race (another writer created the target between our
+ *  GET and PUT). */
+function isCreateRaceError(err: unknown): boolean {
+  return err instanceof Error && err.message.includes("GitHub API error 422");
+}
+
+/**
+ * Ensure the target journal exists with `tomorrowLines` merged in, and write it.
+ * Returns the final target content (for dry-run preview / logging).
+ *
+ * Written BEFORE the source in executeRollover, so a failure here loses no
+ * data: yesterday stays untouched (tasks still [ ]) and the run can be retried.
+ * (The previous order committed the source first, so a target-write failure
+ * stranded the migrated tasks - gone from yesterday, never in today.)
+ *
+ * Race handling: if the target is created by a concurrent writer between our
+ * GET (404) and PUT, `createDailyJournal` fails with HTTP 422. Rather than
+ * erroring out - which once the source is committed would lose the migrated
+ * tasks - we re-fetch and merge. `mergeIntoSection` dedups by normalized task
+ * text, so merging onto a (possibly partial) existing target is safe.
+ *
+ * `dryRun` computes and returns the content with no GitHub writes.
+ */
+async function writeTargetJournal(
+  target: string,
+  tomorrowLines: string[],
+  dryRun: boolean
+): Promise<string> {
+  const journal = await getDailyJournal(target);
+
+  if (!journal.exists) {
+    console.log(
+      ROLLOVER_LOG_PREFIX,
+      `Target (${target}) absent - creating from template${dryRun ? " [DRY RUN]" : ""}`
+    );
+    // Shared template loader (also used by the web create paths), so a
+    // rollover-created journal and a web-created journal share one template.
+    const template = await loadDiaryTemplate(target);
+
+    // Merge migrated tasks into the template's # 当日日程 via the SAME
+    // mergeIntoSection path used when the target already exists. This dedups a
+    // rolled-over task against the template's default starter tasks - e.g. a
+    // migrated "408 🔄" nests its subtasks under the template's "408" instead
+    // of duplicating it, and "Math 🔄" merges under "数学" via the subject
+    // aliases. (The old code did template.replace(%%TODO_PLACEHOLDER%%, ...),
+    // which left the defaults in place and duplicated same-named subjects.) The
+    // %%TODO_PLACEHOLDER%% token is stale here and stripped first.
+    let content = stripStalePlaceholder(template);
+    content = mergeIntoSection(content, tomorrowLines);
+    console.log(
+      ROLLOVER_LOG_PREFIX,
+      `Merged ${tomorrowLines.length} migrated lines into fresh template${dryRun ? " [DRY RUN]" : ""}`
+    );
+
+    if (dryRun) return content;
+
+    try {
+      await createDailyJournal(target, content);
+      return content;
+    } catch (err: unknown) {
+      // Create race: target appeared between our GET and PUT (HTTP 422). Fall
+      // back to fetching + merging instead of failing.
+      if (!isCreateRaceError(err)) throw err;
+      console.warn(
+        ROLLOVER_LOG_PREFIX,
+        `Create raced (422) - re-fetching & merging into existing ${target}`
+      );
+      const refetched = await getDailyJournal(target);
+      if (!refetched.exists) throw err; // vanished again - surface original error
+      const merged = stripStalePlaceholder(
+        mergeIntoSection(refetched.content!, tomorrowLines)
+      );
+      await updateDailyJournal(refetched.path!, refetched.sha!, merged);
+      return merged;
+    }
+  }
+
+  // Target exists - merge tomorrowLines into its # 当日日程 section.
+  console.log(
+    ROLLOVER_LOG_PREFIX,
+    `Target (${target}) exists (sha=${journal.sha}) - merging${dryRun ? " [DRY RUN]" : ""}`
+  );
+  const content = stripStalePlaceholder(
+    mergeIntoSection(journal.content!, tomorrowLines)
+  );
+  if (dryRun) return content;
+  await updateDailyJournal(journal.path!, journal.sha!, content);
+  return content;
 }
 
 // ── Main Rollover ─────────────────────────────────────────
@@ -574,150 +641,32 @@ export async function executeRollover(
     log(`Step 4: Rebuilding source content with migration markers...`);
     const updatedSource = replaceSectionContent(sourceJournal.content!, yesterdayLines);
 
-    // ── 5) Commit source changes ─────────────────────────
-    let sourceSha = sourceJournal.sha!;
+    // ── 5) Write the TARGET first ─────────────────────────
+    // Target-before-source is load-bearing: if the target write fails, yesterday
+    // is still untouched and the rolled-over tasks are NOT lost (still [ ] in
+    // yesterday). The source is only mutated (-> [>]) once the target safely
+    // holds the migrated tasks, so a failed run can simply be retried. (The
+    // previous order committed the source first, stranding tasks on failure.)
+    log(`Step 5: Preparing & writing target journal (${target})...`);
+    const targetContent = await writeTargetJournal(target, tomorrowLines, dryRun);
+
     if (dryRun) {
-      log("━━━ DRY RUN: would update source ━━━");
+      log("━━━ DRY RUN: would write target, then commit source ━━━");
+      console.log(
+        `\n[DRY RUN] 目标日记 (${target}) 内容:\n${"-".repeat(60)}\n${targetContent}\n${"-".repeat(60)}\n`
+      );
       console.log(
         `\n[DRY RUN] 源日记 (${source}) 更新后:\n${"-".repeat(60)}\n${updatedSource}\n${"-".repeat(60)}\n`
       );
     } else {
-      log(`Step 5: Committing source changes...`);
+      // ── 6) Commit source changes (target already succeeded) ──
+      log(`Step 6: Committing source changes...`);
       const sourceResult = await updateDailyJournal(
         sourceJournal.path!,
-        sourceSha,
+        sourceJournal.sha!,
         updatedSource
       );
-      sourceSha = sourceResult.sha;
-      log(`Source updated: new sha=${sourceSha}`);
-    }
-
-    // ── 6) Get or create target journal ──────────────────
-    log(`Step 6: Preparing target journal (${target})...`);
-    const targetJournal = await getDailyJournal(target);
-
-    let targetContent: string;
-    let targetPath: string;
-
-    if (!targetJournal.exists) {
-      log(`Target journal (${target}) does not exist — creating from template...`);
-
-      let template: string;
-      try {
-        template = await getFileContent(TEMPLATE_PATH);
-        // Support both Obsidian-style {{date}} and legacy {{DATE:YYYY-MM-DD}}
-        template = template
-          .replace(/\{\{DATE:YYYY-MM-DD\}\}/g, target)
-          .replace(/\{\{date\}\}/g, target);
-        log(
-          `Loaded template from ${TEMPLATE_PATH} (${template.length} chars)` +
-            (dryRun ? " [DRY RUN]" : "")
-        );
-      } catch (templateErr) {
-        console.warn(
-          ROLLOVER_LOG_PREFIX,
-          `Template not found at ${TEMPLATE_PATH}, using fallback:`,
-          templateErr instanceof Error ? templateErr.message : templateErr
-        );
-        template = [
-          "---",
-          "tags:",
-          "  - diary",
-          `date: ${target}`,
-          "---",
-          "",
-          "# 近期计划",
-          "",
-          "",
-          "",
-          "---",
-          "",
-          "# 当日日程",
-          "",
-          "",
-          "---",
-          "",
-          "# 本日总结",
-          "",
-          "## 今日杂记",
-          "",
-          "",
-        ].join("\n");
-      }
-
-      // Inject tomorrowLines into the template
-      const TODO_PLACEHOLDER = "%%TODO_PLACEHOLDER%%";
-      if (template.includes(TODO_PLACEHOLDER)) {
-        targetContent = template.replace(
-          TODO_PLACEHOLDER,
-          tomorrowLines.join("\n")
-        );
-        log(
-          `Injected ${tomorrowLines.length} task lines at %%TODO_PLACEHOLDER%%` +
-            (dryRun ? " [DRY RUN]" : "")
-        );
-      } else {
-        // Fallback: insert into # 当日日程 section
-        targetContent = insertIntoSection(template, tomorrowLines);
-        log(
-          `%%TODO_PLACEHOLDER%% not found — inserted after ## 当日日程` +
-            (dryRun ? " [DRY RUN]" : "")
-        );
-      }
-
-      // Clean any placeholder tokens that survived (multiple placeholders, or a
-      // template that had the literal %%TODO_PLACEHOLDER%% left over).
-      targetContent = stripStalePlaceholder(targetContent);
-
-      if (dryRun) {
-        log("━━━ DRY RUN: would create target ━━━");
-        console.log(
-          `\n[DRY RUN] 目标日记 (${target}) 内容:\n${"-".repeat(60)}\n${targetContent}\n${"-".repeat(60)}\n`
-        );
-      } else {
-        const created = await createDailyJournal(target, targetContent);
-        targetPath = created.path;
-        log(`Target journal created: path=${targetPath}`);
-      }
-
-      // Extract task texts for dryRun preview
-      const extractedTasks = collectTaskTexts(roots);
-      return {
-        ok: true,
-        status: dryRun ? "dry-run" : "ok",
-        moved: undoneCount,
-        sourceDate: source,
-        targetDate: target,
-        ...(dryRun && {
-          sourcePreview: updatedSource,
-          targetPreview: targetContent,
-          extractedTasks,
-        }),
-      };
-    }
-
-    // Target exists — merge tomorrowLines into its # 当日日程 section
-    log(`Target journal exists: path=${targetJournal.path} sha=${targetJournal.sha}`);
-    targetContent = mergeIntoSection(targetJournal.content!, tomorrowLines);
-    // Clean stale placeholder tokens that survived from a template-created journal.
-    targetContent = stripStalePlaceholder(targetContent);
-    targetPath = targetJournal.path!;
-    const targetSha = targetJournal.sha!;
-
-    // ── 7) Commit target changes ─────────────────────────
-    if (dryRun) {
-      log("━━━ DRY RUN: would update target ━━━");
-      console.log(
-        `\n[DRY RUN] 目标日记 (${target}) 更新后:\n${"-".repeat(60)}\n${targetContent}\n${"-".repeat(60)}\n`
-      );
-    } else {
-      log(`Step 7: Committing target journal update...`);
-      const targetResult = await updateDailyJournal(
-        targetPath,
-        targetSha,
-        targetContent
-      );
-      log(`Target updated: new sha=${targetResult.sha}`);
+      log(`Source updated: new sha=${sourceResult.sha}`);
     }
 
     const extractedTasks = collectTaskTexts(roots);

@@ -537,3 +537,19 @@ export function insertIntoDailyNotesSection(
   lines.splice(insertAt, 0, noteLine);
   return lines.join("\n");
 }
+
+/**
+ * Remove stale `%%TODO_PLACEHOLDER%%` markers. The diary template carries this
+ * token as the rollover-injection point; when a journal is created from the
+ * template without rollover tasks to inject (e.g. the web "create today" path,
+ * or addNote/pushIdea creating a missing journal), the token must be stripped.
+ * Drops a line that is only the placeholder, and removes the token inline
+ * elsewhere. Also cleans any leftover tokens after a rollover injection.
+ */
+export function stripStalePlaceholder(content: string): string {
+  return content
+    .split("\n")
+    .filter((line) => line.trim() !== "%%TODO_PLACEHOLDER%%")
+    .map((line) => line.replace(/%%TODO_PLACEHOLDER%%/g, ""))
+    .join("\n");
+}

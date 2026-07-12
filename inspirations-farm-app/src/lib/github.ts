@@ -33,6 +33,7 @@ import {
   insertSubtaskLine,
   insertIntoDailySection,
   insertIntoDailyNotesSection,
+  stripStalePlaceholder,
   appendInspirationPatchLine,
   type InspirationPatch,
   type DailyTask,
@@ -52,6 +53,7 @@ export {
   insertSubtaskLine,
   insertIntoDailySection,
   insertIntoDailyNotesSection,
+  stripStalePlaceholder,
   type ParsedMarkdown,
   type InspirationPatch,
   type DailyTask,
@@ -559,6 +561,60 @@ export async function createDailyJournal(
   return { path: filePath, sha: result.content.sha };
 }
 
+const DIARY_TEMPLATE_PATH =
+  process.env.DIARY_TEMPLATE_PATH || "Templates/Diary_Template.md";
+
+/**
+ * Load the daily-journal template (Templates/Diary_Template.md) with `date`
+ * substituted into {{date}} / legacy {{DATE:YYYY-MM-DD}}. Returns the raw
+ * template verbatim, INCLUDING the `%%TODO_PLACEHOLDER%%` rollover-injection
+ * token - callers that aren't injecting rollover tasks (the web create paths)
+ * must strip it via `stripStalePlaceholder`.
+ *
+ * Shared by rollover (injects tasks at the placeholder) and the web create
+ * paths (POST /api/daily, modifyDailyJournal's create-if-missing) so every new
+ * journal starts from one template source instead of diverging between the real
+ * template and a hardcoded fallback. Falls back to a minimal template if the
+ * file is missing.
+ */
+export async function loadDiaryTemplate(date: string): Promise<string> {
+  try {
+    const raw = await getFileContent(DIARY_TEMPLATE_PATH);
+    return raw
+      .replace(/\{\{DATE:YYYY-MM-DD\}\}/g, date)
+      .replace(/\{\{date\}\}/g, date);
+  } catch (err) {
+    console.warn(
+      `[loadDiaryTemplate] Template not found at ${DIARY_TEMPLATE_PATH}, using fallback:`,
+      err instanceof Error ? err.message : err
+    );
+    return [
+      "---",
+      "tags:",
+      "  - diary",
+      `date: ${date}`,
+      "---",
+      "",
+      "# 近期计划",
+      "",
+      "",
+      "",
+      "---",
+      "",
+      "# 当日日程",
+      "",
+      "",
+      "---",
+      "",
+      "# 本日总结",
+      "",
+      "## 今日杂记",
+      "",
+      "",
+    ].join("\n");
+  }
+}
+
 /** Update a daily journal file with new content */
 export async function updateDailyJournal(
   filePath: string,
@@ -615,11 +671,19 @@ export async function modifyDailyJournal(
     await new Promise((r) => setTimeout(r, 500));
     let journal = await getDailyJournal(date);
     if (!journal.exists) {
-      const created = await createDailyJournal(date);
-      journal = await getDailyJournal(date);
-      journal.sha = created.sha;
-      journal.path = created.path;
-      journal.content = "";
+      // Create from the shared diary template (placeholder stripped - there are
+      // no rollover tasks to inject here) and use that template as the modify
+      // base instead of discarding it. Skipping the re-GET avoids a stale
+      // read-replica GET right after create (fresh-looking SHA paired with
+      // stale content); we already know the content - the template we wrote.
+      const template = stripStalePlaceholder(await loadDiaryTemplate(date));
+      const created = await createDailyJournal(date, template);
+      journal = {
+        exists: true,
+        path: created.path,
+        sha: created.sha,
+        content: template,
+      };
     }
     const newContent = modify(journal.content || "");
     if (newContent === null) return null; // modifier aborted (e.g. duplicate)

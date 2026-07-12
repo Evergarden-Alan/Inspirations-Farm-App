@@ -7,6 +7,8 @@ import {
   modifyDailyJournal,
   insertIntoDailySection,
   insertIntoDailyNotesSection,
+  loadDiaryTemplate,
+  stripStalePlaceholder,
 } from "@/lib/github";
 import { validatePin } from "@/lib/auth";
 import { getBeijingDateTimeString } from "@/lib/beijing-time";
@@ -117,7 +119,13 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const result = await createDailyJournal(date);
+    // Use the shared real diary template (placeholder stripped - no rollover
+    // tasks to inject) so a web-created journal matches a rollover-created one
+    // instead of falling back to a hardcoded skeleton.
+    const result = await createDailyJournal(
+      date,
+      stripStalePlaceholder(await loadDiaryTemplate(date))
+    );
     revalidatePath("/");
     return Response.json({ ok: true, ...result });
   } catch (err: unknown) {
