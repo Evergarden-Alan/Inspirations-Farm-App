@@ -79,7 +79,6 @@ GITHUB_PAT=your_github_token
 REPO_OWNER=your_github_owner_or_org
 REPO_NAME=your_vault_repo_name
 APP_PIN=your_pin
-CRON_SECRET=your_cron_secret
 ```
 
 > **Important:** The development server writes through the same API routes as production. If `.env.local` points at your real GitHub vault, creating, editing, completing, or deleting items in local dev will update the real repository.

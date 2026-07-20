@@ -37,10 +37,8 @@ Browser requests /
 | `src/lib/api.ts` | Client-side `apiFetch()` wrapper � attaches `x-app-pin` header |
 | `src/lib/beijing-time.ts` | Beijing timezone (UTC+8) date utilities |
 | `src/lib/cascade.ts` | Task toggle with parent-child cascade |
-| `src/lib/rollover.ts` | Daily task rollover — tree-split undone tasks to next day; `mergeIntoSection` merges descendants under same-named top-level tasks when target exists |
 | `src/app/api/github/route.ts` | Inspiration CRUD API (POST/PUT/DELETE/PATCH) |
 | `src/app/api/daily/route.ts` | Daily journal CRUD API |
-| `src/app/api/cron/rollover/route.ts` | Cron-triggered daily rollover |
 
 ## Data Flow
 
@@ -67,7 +65,6 @@ Events (`daily:updated`, `inspiration:updated`, `auth:expired`) trigger re-fetch
 - `REPO_OWNER` � GitHub username/org
 - `REPO_NAME` � repository name
 - `APP_PIN` � lock screen PIN
-- `CRON_SECRET` � secret for `/api/cron/rollover`
 
 ## Styling
 - Tailwind v4 (CSS-based config in `globals.css`)
