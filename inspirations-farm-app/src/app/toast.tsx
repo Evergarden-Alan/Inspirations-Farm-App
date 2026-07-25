@@ -11,7 +11,7 @@
  * Mount <ToastContainer /> once in home.tsx.
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { CheckCircle2, XCircle, X } from "lucide-react";
 
@@ -40,6 +40,7 @@ export const toast = {
 // ── Container component ────────────────────────────────────
 export function ToastContainer() {
   const [items, setItems] = useState<ToastItem[]>([]);
+  const timersRef = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
 
   useEffect(() => {
     function onShow(e: Event) {
@@ -47,13 +48,20 @@ export function ToastContainer() {
       setItems((prev) => [...prev, item]);
 
       // Auto-dismiss after 3.5s
-      setTimeout(() => {
+      const timerId = setTimeout(() => {
         setItems((prev) => prev.filter((t) => t.id !== item.id));
+        timersRef.current.delete(timerId);
       }, 3500);
+      timersRef.current.add(timerId);
     }
 
     window.addEventListener("toast:show", onShow);
-    return () => window.removeEventListener("toast:show", onShow);
+    return () => {
+      window.removeEventListener("toast:show", onShow);
+      // Clean up all pending timers on unmount to prevent memory leak
+      timersRef.current.forEach(clearTimeout);
+      timersRef.current.clear();
+    };
   }, []);
 
   function dismiss(id: number) {

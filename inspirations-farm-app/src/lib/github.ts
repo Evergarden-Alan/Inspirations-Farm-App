@@ -686,14 +686,19 @@ export async function modifyDailyJournal(
   date: string,
   modify: (content: string) => string | null
 ): Promise<{ sha: string; content: string } | null> {
+  // Track retry attempts for exponential backoff
+  let attempt = 0;
+
   return withConflictRetry(async () => {
-    // Brief pause so GitHub's read replica can catch up after a prior write.
-    // The Contents API is eventually consistent: a GET immediately after a PUT
-    // can return a fresh-looking SHA paired with STALE content, which would let
-    // a PUT (SHA matches) overwrite recent data — silent data loss. The pause
-    // makes the subsequent read fresh; withConflictRetry then handles a stale
-    // SHA (409) on the write.
-    await new Promise((r) => setTimeout(r, 500));
+    // Exponential backoff: wait longer on each retry to handle GitHub's eventual
+    // consistency. The Contents API can return stale content immediately after a
+    // write. Backoff: 0ms (first attempt), 500ms, 1000ms (on retries).
+    if (attempt > 0) {
+      const delay = Math.min(500 * attempt, 2000);
+      await new Promise((r) => setTimeout(r, delay));
+    }
+    attempt++;
+
     let journal = await getDailyJournal(date);
     if (!journal.exists) {
       // Create from the shared diary template (placeholder stripped - there are

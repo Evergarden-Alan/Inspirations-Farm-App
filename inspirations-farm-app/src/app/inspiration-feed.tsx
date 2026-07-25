@@ -199,15 +199,17 @@ export function InspirationFeed({ initialItems }: InspirationFeedProps = {}) {
     }
   }
 
-  function handleDelete(item: Inspiration) {
+  async function handleDelete(item: Inspiration) {
     // Optimistic remove immediately
     setItems((prev) => prev.filter((i) => i.sha !== item.sha));
     setError(null);
 
-    // Clear any existing pending delete first
+    // Clear any existing pending delete first and await its execution to avoid
+    // race condition where first delete fails but second succeeds, leaving
+    // inconsistent UI state
     if (pendingDelete) {
       clearTimeout(pendingDelete.timeoutId);
-      execDelete(pendingDelete.item);
+      await execDelete(pendingDelete.item);
     }
 
     const timeoutId = setTimeout(() => {
@@ -225,6 +227,15 @@ export function InspirationFeed({ initialItems }: InspirationFeedProps = {}) {
     setItems((prev) => [pendingDelete.item, ...prev]);
     setPendingDelete(null);
   }
+
+  // Clean up pending delete timer on unmount to prevent memory leak
+  useEffect(() => {
+    return () => {
+      if (pendingDelete) {
+        clearTimeout(pendingDelete.timeoutId);
+      }
+    };
+  }, [pendingDelete]);
 
   // ── Auto-resize textarea ────────────────────────────
   function autoResize(el: HTMLTextAreaElement) {
