@@ -12,6 +12,7 @@
 
 import { getBeijingDateTimeString } from "./beijing-time";
 import { parseBeijingTime } from "./time";
+import pLimit from "p-limit";
 import {
   getConfig,
   githubFetch,
@@ -155,6 +156,13 @@ export async function createInspiration(
 /** Fetch and decode a single file's raw text content from the repo */
 export async function getFileContent(filePath: string): Promise<string> {
   const { owner, repo } = getConfig();
+
+  // SECURITY: Prevent path traversal attacks. Reject paths containing ".." or
+  // starting with "/" to ensure all reads stay within the repository root.
+  if (filePath.includes("..") || filePath.startsWith("/")) {
+    throw new Error(`Invalid file path: ${filePath}`);
+  }
+
   console.log(`[getFileContent] Fetching ${filePath}`);
   const data = await githubFetch<{ content: string; encoding: string }>(
     `/repos/${owner}/${repo}/contents/${filePath}`
@@ -328,13 +336,15 @@ export async function syncIdeasState(
 ): Promise<{ synced: number; errors: string[] }> {
   const { owner, repo } = getConfig();
 
-  // Run all updates concurrently — each id maps to a distinct file, so there
-  // are no cross-item races. Previously a sequential for..of awaited each
-  // withConflictRetry one at a time (2+ API calls per item in series), which
-  // risked Vercel function timeouts on larger batches.
+  // Limit concurrency to 10 to avoid hitting GitHub API rate limits (5000 req/hr).
+  // With 100+ ideas and ~2 API calls per idea (GET + PUT), unlimited concurrency
+  // could exhaust the rate limit. Each id maps to a distinct file, so no cross-item
+  // races within the batch.
+  const limit = pLimit(10);
+
   const results = await Promise.allSettled(
-    ideaIds.map(
-      async (id): Promise<{ id: string; synced: boolean; error?: string }> => {
+    ideaIds.map((id) =>
+      limit(async (): Promise<{ id: string; synced: boolean; error?: string }> => {
         const filePath = `Inspirations/${id}.md`;
         try {
           await withConflictRetry(async () => {
@@ -380,7 +390,7 @@ export async function syncIdeasState(
           }
           return { id, synced: false, error: msg };
         }
-      }
+      })
     )
   );
 

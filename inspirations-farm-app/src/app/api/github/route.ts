@@ -27,7 +27,9 @@ export async function GET(req: NextRequest) {
     return Response.json({ ok: true, items });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Unknown error";
-    return Response.json({ ok: false, error: message }, { status: 500 });
+    // Return 404 for not-found errors so clients can distinguish from server errors
+    const status = message.includes("404") ? 404 : 500;
+    return Response.json({ ok: false, error: message }, { status });
   }
 }
 
@@ -76,7 +78,9 @@ export async function POST(req: NextRequest) {
     return Response.json({ ok: true, ...result });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Unknown error";
-    return Response.json({ ok: false, error: message }, { status: 500 });
+    // Return 404 for not-found errors so clients can distinguish from server errors
+    const status = message.includes("404") ? 404 : 500;
+    return Response.json({ ok: false, error: message }, { status });
   }
 }
 
@@ -102,7 +106,9 @@ export async function DELETE(req: NextRequest) {
     return Response.json({ ok: true });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Unknown error";
-    return Response.json({ ok: false, error: message }, { status: 500 });
+    // Return 404 for not-found errors so clients can distinguish from server errors
+    const status = message.includes("404") ? 404 : 500;
+    return Response.json({ ok: false, error: message }, { status });
   }
 }
 
@@ -140,7 +146,9 @@ export async function PUT(req: NextRequest) {
     return Response.json({ ok: true, ...result });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Unknown error";
-    return Response.json({ ok: false, error: message }, { status: 500 });
+    // Return 404 for not-found errors so clients can distinguish from server errors
+    const status = message.includes("404") ? 404 : 500;
+    return Response.json({ ok: false, error: message }, { status });
   }
 }
 
@@ -174,6 +182,8 @@ export async function PATCH(req: NextRequest) {
     return Response.json({ ok: true, sha: result.sha, patch: result.patch });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Unknown error";
-    return Response.json({ ok: false, error: message }, { status: 500 });
+    // Return 404 for not-found errors so clients can distinguish from server errors
+    const status = message.includes("404") ? 404 : 500;
+    return Response.json({ ok: false, error: message }, { status });
   }
 }
