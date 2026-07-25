@@ -66,6 +66,29 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // Input validation: enforce reasonable limits to prevent abuse
+    if (content.length > 10000) {
+      return Response.json(
+        { ok: false, error: "Content too long (max 10,000 characters)" },
+        { status: 400 }
+      );
+    }
+
+    if (Array.isArray(tags)) {
+      if (tags.length > 10) {
+        return Response.json(
+          { ok: false, error: "Too many tags (max 10)" },
+          { status: 400 }
+        );
+      }
+      if (tags.some((t) => typeof t !== "string" || t.length > 50)) {
+        return Response.json(
+          { ok: false, error: "Invalid tag (max 50 characters each)" },
+          { status: 400 }
+        );
+      }
+    }
+
     const filename = `${getBeijingTimestamp()}.md`;
     const result = await createInspiration(
       filename,

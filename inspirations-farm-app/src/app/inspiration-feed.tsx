@@ -119,11 +119,27 @@ export function InspirationFeed({ initialItems }: InspirationFeedProps = {}) {
     const text = content.trim();
     if (!text || submitting) return;
 
+    // Input validation: enforce reasonable limits to prevent abuse
+    if (text.length > 10000) {
+      setError("内容过长（最多 10,000 字符）");
+      return;
+    }
+
     // Preprocess tags: split by comma, trim, filter empty
     const tags = newTags
       .split(/[,，]/)
       .map((t) => t.trim())
       .filter(Boolean);
+
+    // Validate tag count and length
+    if (tags.length > 10) {
+      setError("标签过多（最多 10 个）");
+      return;
+    }
+    if (tags.some((t) => t.length > 50)) {
+      setError("标签过长（每个最多 50 字符）");
+      return;
+    }
 
     setSubmitting(true);
     setError(null);
