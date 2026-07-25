@@ -1,218 +1,170 @@
 # Inspirations Farm 🌱
 
 > 🌐 Languages: **English** | [简体中文](README.zh-CN.md)  
-> 🏷️ Version: **v1.0.0**
+> 🏷️ Version: **v1.0.1**
 
-A mobile-first PWA personal inspiration management system. GitHub-backed headless CMS, installable on your phone home screen.
+A mobile-first PWA for personal inspiration and task management. GitHub-backed storage, installable on your phone home screen.
 
-**Live**: [todo.alanevergarden.xyz](https://todo.alanevergarden.xyz)
+**Live Demo**: [todo.alanevergarden.xyz](https://todo.alanevergarden.xyz)
 
-## Tech Stack
+---
 
-| Layer | Technology |
-|---|---|
-| Framework | Next.js 16 (App Router) |
-| Language | TypeScript |
-| UI | React 19 + Tailwind CSS v4 |
-| Components | shadcn/ui (base-nova) + Base UI React primitives |
-| Icons | lucide-react |
-| Markdown | gray-matter (frontmatter) + `react-markdown` + `remark-gfm` + `remark-math` + `rehype-katex` (KaTeX) |
-| Markdown AST | `mdast-util-from-markdown` + `micromark-extension-frontmatter` + `mdast-util-frontmatter` (code-block-safe section location) |
-| Backend/CMS | GitHub REST API (Markdown files) |
-| Auth | PIN lock screen + Cron secret |
-| PWA | manifest + service worker (production only) |
-| Cron | Vercel Cron Jobs |
-| Deploy | Vercel |
+## ✨ Features
 
-## Features
+### 📝 Inspiration Management
+- **Quick Capture** — Timestamped ideas with priority (p0-p3) and tags
+- **Follow-up Notes** — Append patches to existing inspirations
+- **Push to Daily** — Convert inspirations into today's tasks with one tap
+- **Auto-Archive** — Completing a linked task auto-archives the source inspiration
+- **Smart Filters** — Filter by priority or tags
 
-- **🔐 PIN Lock Screen** — 4-6 digit access code, 401 auto-lockout
-- **📝 Inspiration Pool** — capture ideas with timestamped filenames, YAML frontmatter
-- **🏷️ Priority & Tags** — p0–p3 priority border + tag pills with filter bar
-- **📅 Daily Dashboard** — journal with nested task checkboxes, parent-child cascade logic
-- **🔗 Inspiration → Task Linking** — push inspirations to today's journal as `[[timestamp|title]]` wiki-links; backend dedup prevents double-entry; push button shows spinner + success/duplicate feedback
-- **✅ Cascade Archive** — completing a linked task auto-archives the inspiration (both via web toggle and Obsidian-side reconciliation on next page load)
-- **⏳ Relative Time** — Beijing-timezone-aware "X小时前" labels
-- **🌳 Nested Tasks** — markdown indent-parsed tree with parent-child cascade toggle (line-based, avoids false String.replace matches); supports `-`, `*`, `+` task-list markers
-- **🔄 Daily Rollover** — tree-based splitting preserves parent-child relationships; `🔄` marker tags rolled-over tasks so the frontend highlights them with an amber "延期" badge
-- **🏷️ Rollover Badge** — tasks carried over from yesterday render a `延期` badge (`bg-amber-100 text-amber-700`), visually distinguishing legacy items from today's new tasks
-- **📝 Inspiration Patches** — append timestamped follow-up notes to inspirations via `## 追加记录` markdown section; multi-line patch content is preserved (continuation lines no longer dropped)
-- **🛡️ Code-Block-Safe Editing** — section insertion (patches, daily tasks, jottings) and parsing use mdast AST to locate headings, so a `# heading` or `---` inside a fenced code block can never mis-locate a section or corrupt the file. YAML frontmatter is parsed as a single node (YAML `#` comments aren't mistaken for headings). The rest of the file is preserved byte-for-byte (tabs, `*`/`+` bullets, blank lines) — no full re-serialize.
-- **📐 CRLF-Safe Parsing** — daily journals are normalised to LF on read, so CRLF files (e.g. from Obsidian on Windows) parse tasks/notes correctly instead of being silently dropped.
-- **📄 Rich Markdown Rendering** — `react-markdown` + `remark-gfm` + `@tailwindcss/typography`; prose styles for inspiration cards & jottings; inline-safe rendering for todo tasks (no prose, `<p>`→`<span>`, keeps flex layout)
-- **🧮 Math Rendering** — inline `$...$` and block `$$...$$` via `remark-math` + `rehype-katex`; KaTeX CSS imported globally (`globals.css`); `output: "html"` prevents exposed MathML/source text like `{\displaystyle ...}`
-- **🗒️ Daily Jottings** — timestamped notes appended to `## 今日杂记` under `# 本日总结`; rendered as a timeline on the dashboard
-- **📋 Template Support** — `Templates/Diary_Template.md` fetched from GitHub at rollover time; supports `{{date}}` / `{{DATE:YYYY-MM-DD}}` and `%%TODO_PLACEHOLDER%%` placeholders; path configurable via `DIARY_TEMPLATE_PATH` env var; falls back to built-in template on fetch failure
-- **📱 PWA** — install to home screen, offline cache, standalone mode
-- **📂 Headless CMS** — all data in your private GitHub repo as plain Markdown
+### 📅 Daily Dashboard
+- **Nested Tasks** — Hierarchical todo list with parent-child relationships
+- **Cascade Toggle** — Completing a parent completes all children automatically
+- **Daily Jottings** — Timestamped notes for quick thoughts
+- **Auto Rollover** — Unfinished tasks migrate to the next day at midnight (Beijing time)
+- **Rollover Badge** — Migrated tasks show a distinctive amber "延期" badge
 
-## Architecture
+### 🔐 Security & Reliability
+- **PIN Protection** — 4-6 digit lock screen with auto-lockout on 401
+- **Conflict Resolution** — Automatic retry on concurrent edits (HTTP 409)
+- **Network Resilience** — Exponential backoff retry for transient failures
+- **Input Validation** — Client and server-side content length/tag limits
+- **Path Safety** — Protection against path traversal attacks
 
-The codebase is split by single-responsibility to keep the former "god object" `github.ts` maintainable:
+### 📱 Mobile Experience
+- **PWA Support** — Install to home screen, works offline
+- **Touch-Optimized** — 44px minimum touch targets, smooth animations
+- **Responsive Design** — Adapts from mobile to desktop
+- **Loading States** — Clear feedback for all async operations
 
-| Module | Responsibility |
-|---|---|
-| `src/lib/github-client.ts` | Low-level GitHub REST client — auth/config, `githubFetch`, `withConflictRetry` (409 retry), base64 codec, raw API response types. No business logic, no markdown. |
-| `src/lib/markdown-utils.ts` | Pure Markdown parse & manipulate — date-safe frontmatter, `parseTasks`/`computeParents`, `parseInspirationPatches`/`parseDailyNotes`, and the AST-based insertion helpers. No network, no GitHub. |
-| `src/lib/github.ts` | High-level data service — orchestrates the client + markdown-utils into business operations (list/create/archive inspirations, daily-journal CRUD, `syncIdeasState`). Re-exports the pre-split public API so callers (API routes, server data layer, client components) are unchanged. |
+### 🎨 Rich Content
+- **Markdown Support** — Bold, italic, code, links, tables, task lists
+- **Math Rendering** — Inline `$E=mc^2$` and block `$$...$$` equations via KaTeX
+- **Code-Block Safe** — Headings inside code blocks don't break parsing
+- **CRLF Compatible** — Works with files from Windows Obsidian
 
-**Markdown manipulation is AST-based.** Insertion and parsing helpers parse the document to an mdast tree to robustly locate headings/sections — fenced code blocks and YAML frontmatter are separate node types, so a `# heading` or `---` inside them can never mis-locate a section or corrupt the file. The new line is then spliced into the raw string at the AST-derived line index; the rest of the file is preserved byte-for-byte (no full re-serialize, so tabs, `*`/`+` bullets, and blank lines are untouched).
+---
 
-**Write consistency.** Daily write paths (`add task`, `add note`) go through `modifyDailyJournal`, which wraps the whole read-modify-write in `withConflictRetry` (re-GET fresh SHA + content on a 409) and adds a brief pre-read pause so GitHub's eventually-consistent read replica can catch up — preventing both 409 failures and the silent data-loss that a "fresh SHA + stale content" read can otherwise cause.
+## 🚀 Quick Start
 
-## Project Structure
+### 1. Prerequisites
+
+- A GitHub account with a private repository
+- Node.js 18+ installed locally (for development)
+
+### 2. Repository Setup
+
+Create these directories in your GitHub repo:
 
 ```
-Inspirations_Farm/
-├── README.md
-├── docs/DEVLOG.md
-└── inspirations-farm-app/
-    ├── vercel.json                       # Cron schedule
-    ├── public/
-    │   ├── icon.svg                      # PWA icon
-    │   └── sw.js                         # Service Worker
-    ├── src/
-    │   ├── app/
-    │   │   ├── api/
-    │   │   │   ├── github/route.ts       # Inspirations CRUD + archive + patches + syncIdeas
-    │   │   │   ├── daily/route.ts        # Daily journal + push-to-daily + jottings
-    │   │   │   └── cron/rollover/route.ts # Rollover endpoint
-    │   │   ├── layout.tsx                # PWA meta + SW registration (prod only)
-    │   │   ├── page.tsx                  # Server Component shell (force-dynamic) + Suspense
-    │   │   ├── home.tsx                  # Client shell: PIN lock overlay + sticky header
-    │   │   ├── dashboard-content.tsx     # Async Server Component: fetch + reconciliation
-    │   │   ├── dashboard-skeleton.tsx    # Suspense fallback (animate-pulse)
-    │   │   ├── lock-screen.tsx           # PIN unlock
-    │   │   ├── inspiration-feed.tsx      # Capture + timeline + push button
-    │   │   ├── daily-dashboard.tsx       # Nested tasks + cascade + archive
-    │   │   ├── jottings-card.tsx         # Daily jottings timeline + add-note
-    │   │   └── manifest.ts               # → /manifest.webmanifest
-    │   ├── components/ui/                # shadcn/ui (base-nova)
-    │   ├── types/
-    │   │   └── js-yaml.d.ts              # Minimal ambient types for js-yaml
-    │   └── lib/
-    │       ├── github-client.ts          # Low-level GitHub REST client (fetch, retry, base64, types)
-    │       ├── markdown-utils.ts         # Pure Markdown parse/manipulate (AST-based section location)
-    │       ├── github.ts                 # High-level data service (orchestrates client + markdown-utils)
-    │       ├── data.ts                   # Server data layer: getTodos/getInspirations/syncCompletedIdeas
-    │       ├── beijing-time.ts           # Asia/Shanghai date utilities
-    │       ├── time.ts                   # Survival duration + Beijing-time parser
-    │       ├── cascade.ts               # Nested task toggle cascade
-    │       ├── rollover.ts              # Daily undone-task migration (tree split + merge)
-    │       ├── auth.ts                   # Server-side PIN validation
-    │       ├── api.ts                    # Client fetch wrapper (PIN + 401 handler)
-    │       └── utils.ts                  # cn() utility
-    ├── .env.example
-    └── package.json
+your-repo/
+├── Inspirations/           # Inspiration markdown files
+├── Journal/Daily/          # Daily journal files
+└── Templates/              # Optional: Diary_Template.md
 ```
 
-## Getting Started
-
-### 1. Install
+### 3. Local Development
 
 ```bash
+# Clone and install
+git clone <your-fork>
 cd inspirations-farm-app
 npm install
-```
 
-### 2. Environment Variables
-
-```bash
+# Configure environment
 cp .env.example .env.local
-```
+# Edit .env.local with your credentials (see below)
 
-Edit `.env.local`:
-
-```env
-GITHUB_PAT=ghp_your_personal_access_token   # needs repo scope
-REPO_OWNER=your-github-username
-REPO_NAME=your-private-repo
-APP_PIN=1234                                 # lock screen PIN (omit to skip auth)
-CRON_SECRET=your-random-secret               # for Vercel Cron Job auth
-DIARY_TEMPLATE_PATH=Templates/Diary_Template.md  # optional, defaults to this value
-```
-
-### 3. Repository Structure
-
-Your GitHub repo should have these directories:
-
-```
-Inspirations/            # inspiration .md files
-Journal/Daily/           # daily journal .md files
-Templates/               # (optional) Diary_Template.md
-```
-
-### 4. Run
-
-```bash
+# Run development server
 npm run dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000). Enter your APP_PIN to unlock.
+Open [http://localhost:3000](http://localhost:3000)
 
-## API Reference
+### 4. Environment Variables
 
-All endpoints require `x-app-pin` header (unless `APP_PIN` is unset).
+Create `.env.local`:
 
-### /api/github
+```env
+# GitHub API credentials
+GITHUB_PAT=ghp_your_token_here          # Personal Access Token with 'repo' scope
+REPO_OWNER=your-username                 # Your GitHub username
+REPO_NAME=your-repo-name                 # Repository name
 
-| Method | Body | Description |
-|---|---|---|
-| GET | — | List active inspirations (with `id`, `title`, `content`, `patches`) |
-| POST | `{ content, priority?, tags? }` | Create inspiration (`Inspirations/YYYY-MM-DD-HHmmss.md`) |
-| POST | `{ action: "syncIdeas", ideaIds: string[] }` | Batch-archive inspirations (Obsidian-side reconciliation; idempotent — skips already-completed) |
-| PATCH | `{ path, content }` | Append timestamped patch to `## 追加记录` section |
-| PUT | `{ path, sha, status }` or `{ ideaId, status }` | Update status or archive by ideaId |
-| DELETE | `{ path, sha }` | Delete inspiration |
+# Security
+APP_PIN=123456                           # 4-6 digit PIN (optional, omit to disable auth)
+CRON_SECRET=your-random-secret           # Protect rollover endpoint
 
-### /api/daily
-
-| Method | Body | Description |
-|---|---|---|
-| GET | `?date=YYYY-MM-DD` | Get daily journal with parsed tasks + notes |
-| POST | `{ date }` | Create daily journal |
-| POST | `{ ideaId, ideaTitle, date }` | Push inspiration into today's tasks (dedup: `409` if `ideaId` already present) |
-| POST | `{ action: "addNote", date, content }` | Append timestamped note to `## 今日杂记` section |
-| PUT | `{ path, sha, content }` | Update journal content |
-
-### /api/cron/rollover
-
-| Method | Auth | Description |
-|---|---|---|
-| GET | `Authorization: Bearer <CRON_SECRET>` or `?secret=<CRON_SECRET>` | Migrate undone tasks from yesterday → today |
-
-**Query parameters:**
-
-| Param | Value | Description |
-|---|---|---|
-| `secret` | `<CRON_SECRET>` | Auth via URL (alternative to Bearer header) |
-| `dryRun` | `true` | Parse & build content, skip GitHub writes, return previews |
-| `targetDate` | `YYYY-MM-DD` | Time-machine: set source date explicitly (target = source + 1 day) |
-
-**Auth priority**: `NODE_ENV=development` → bypass all auth. Otherwise: `?secret=` → `Authorization` header.
-
-**Examples:**
-```
-# Local safe test (dev mode — no auth needed)
-/api/cron/rollover?dryRun=true
-
-# Production dry run with URL auth
-/api/cron/rollover?secret=<SECRET>&dryRun=true
-
-# Time-machine: rollover tasks from June 30 → July 1 (source = 06-30, target = 07-01)
-/api/cron/rollover?secret=<SECRET>&dryRun=true&targetDate=2026-06-30
-
-# Real historical rollover (writes to GitHub!)
-/api/cron/rollover?secret=<SECRET>&targetDate=2026-06-15
+# Optional customization
+DIARY_TEMPLATE_PATH=Templates/Diary_Template.md  # Path to custom template
 ```
 
-**Dry-run response** includes `sourcePreview`, `targetPreview`, `extractedTasks`, `sourceDate`, `targetDate`.
+**Getting a GitHub PAT:**
+1. Go to GitHub Settings → Developer settings → Personal access tokens → Tokens (classic)
+2. Generate new token with `repo` scope
+3. Copy the token to `GITHUB_PAT`
 
-## Markdown File Format
+---
 
-All Markdown content is rendered with `react-markdown` + `remark-gfm` (GitHub Flavored Markdown) using `@tailwindcss/typography` prose styles. **Bold**, *italic*, `code`, [links](url), tables, task lists, and strikethrough are all supported.
+## 📖 Usage Guide
 
-**Inspiration** (`Inspirations/2026-06-19-113215.md`):
+### Capturing Inspirations
+
+1. **Quick Add**: Type in the main input, select priority, add tags (comma-separated)
+2. **Priority Levels**:
+   - `p0` (Red) — Urgent
+   - `p1` (Orange) — High
+   - `p2` (Blue) — Normal (default)
+   - `p3` (Gray) — Low
+3. **Tags**: Use commas to separate: `rust, learning, backend`
+4. **Push to Daily**: Click the arrow button on any card to add it to today's tasks
+
+### Managing Daily Tasks
+
+1. **Add Task**: Type in "添加任务..." input and press Enter or click +
+2. **Add Subtask**: Click the ↳ icon on any task (max 4 levels deep)
+3. **Toggle Complete**: Tap the checkbox — parent tasks cascade to children
+4. **Rollover**: Uncompleted tasks automatically move to tomorrow at midnight
+
+### Daily Jottings
+
+Quick timestamped notes for thoughts that don't need a full inspiration:
+1. Type in the jottings input
+2. Press Enter or click ✓
+3. Notes appear in chronological order
+
+### Follow-up Notes (Patches)
+
+Add updates to existing inspirations:
+1. Click the 📝 icon on any inspiration card
+2. Type your follow-up thought
+3. Submit — it appends with a timestamp
+
+---
+
+## 🏗️ Tech Stack
+
+| Layer | Technology |
+|---|---|
+| **Framework** | Next.js 16 (App Router, React 19) |
+| **Language** | TypeScript |
+| **Styling** | Tailwind CSS v4 |
+| **UI Components** | shadcn/ui (base-nova) + Radix UI primitives |
+| **Markdown** | react-markdown + remark-gfm + rehype-katex |
+| **Backend** | GitHub REST API (Contents API) |
+| **Auth** | PIN-based with timing-safe comparison |
+| **Deployment** | Vercel with Cron Jobs |
+| **PWA** | Service Worker + Web App Manifest |
+
+---
+
+## 📂 File Format
+
+### Inspiration File
+
+`Inspirations/2026-06-19-113215.md`:
+
 ```markdown
 ---
 type: inspiration
@@ -222,17 +174,22 @@ priority: p2
 tags: [rust, learning]
 ---
 
-# User's note content
+# Learn Rust ownership system
 
-Some additional body text...
+Deep dive into borrowing, lifetimes, and memory safety.
+
+Math example: $E = mc^2$
 
 ## 追加记录
 
-- **2026-06-20 14:30** Follow-up thought on this topic
-- **2026-06-21 09:15** Another update after sleeping on it
+- **2026-06-20 14:30** Started reading the Rust book chapter 4
+- **2026-06-21 09:15** Completed exercises, feel more confident now
 ```
 
-**Daily Journal** (`Journal/Daily/2026-06-19.md`):
+### Daily Journal
+
+`Journal/Daily/2026-06-19.md`:
+
 ```markdown
 ---
 tags:
@@ -241,71 +198,273 @@ date: 2026-06-19
 ---
 # 近期计划
 
-
+Long-term goals go here...
 
 ---
 # 当日日程
 
 - [ ] Buy groceries
-- [ ] [[2026-06-19-113215|Learn Rust]]    ← linked inspiration
-    - [ ] Sub-task with 4-space indent
+- [ ] [[2026-06-19-113215|Learn Rust]]
+    - [ ] Read chapter 4
+    - [ ] Do exercises
+- [x] Morning workout
 
 ---
 # 本日总结
 
 ## 今日杂记
 
-- **14:30** Quick thought captured during the day
+- **14:30** Had a great idea for the new feature
+- **18:00** Finished the Rust chapter, making good progress
 ```
 
-**Math syntax** — works in inspiration content, patches, jottings, and task text:
-```markdown
-Inline: $E = mc^2$
+---
 
-Block:
-$$
-\int_{-\infty}^{\infty} e^{-x^2} dx = \sqrt{\pi}
-$$
+## 🤖 Daily Rollover
+
+Every day at 00:01 (Beijing time), a cron job processes yesterday's tasks:
+
+1. **Parse Task Tree** — Builds parent-child relationships from indentation
+2. **Split by Status**:
+   - Completed subtrees stay in yesterday
+   - Incomplete tasks move to today with `🔄` marker
+   - Partial completion: split done/undone portions
+3. **Merge or Create**:
+   - If today exists: merge tasks (dedup by normalized text)
+   - If new day: fetch template and inject tasks
+
+**Visual Indicator**: Migrated tasks show an amber "延期" badge in the UI.
+
+**Template Support**: Customize `Templates/Diary_Template.md` with:
+- `{{date}}` or `{{DATE:YYYY-MM-DD}}` — replaced with target date
+- `%%TODO_PLACEHOLDER%%` — where rolled-over tasks inject
+
+---
+
+## 🌐 Deployment
+
+### Deploy to Vercel
+
+1. **Push to GitHub**: Commit this repo to your GitHub account
+2. **Import to Vercel**:
+   - New Project → Import your repo
+   - Root Directory: `inspirations-farm-app`
+3. **Environment Variables**: Add all variables from `.env.local`
+4. **Deploy**: Vercel builds and deploys automatically
+5. **Verify Cron**: Check Vercel Dashboard → Cron Jobs for the rollover schedule
+
+### Custom Domain (Optional)
+
+In Vercel project settings → Domains:
+- Add your domain (e.g., `todo.yourdomain.com`)
+- Configure DNS as instructed
+- SSL certificate auto-provisions
+
+---
+
+## 🔌 API Reference
+
+All endpoints require `x-app-pin` header (unless `APP_PIN` is unset).
+
+### Inspirations: `GET /api/github`
+
+List all active inspirations with content and patches.
+
+**Response:**
+```json
+{
+  "ok": true,
+  "items": [
+    {
+      "id": "2026-06-19-113215",
+      "sha": "abc123...",
+      "title": "Learn Rust",
+      "content": "# Learn Rust\n\nDeep dive...",
+      "patches": [...],
+      "priority": "p2",
+      "tags": ["rust", "learning"],
+      "create": "2026-06-19 11:32:15"
+    }
+  ]
+}
 ```
 
-**Rollover behavior**: at Beijing 00:01 each day, the cron job reads **yesterday's** journal and builds a **task tree** from the `# 当日日程` section (handles `[x]`, `[ ]`, `[>]` markers at arbitrary nesting depth). The tree is then split recursively:
-- **Fully done** subtrees (parent `[x]` + all descendants `[x]`) stay in yesterday as-is.
-- **Partially complete** subtrees are split: done portions remain in yesterday (parent `[>]`, children `[x]`), undone portions are migrated to today (parent `[ ]`, children `[ ]`) with nesting preserved.
-- Migrated tasks get a `🔄` suffix so the frontend renders an amber "延期" badge — no raw emoji visible to the user. Double-stacking is prevented.
+### Create Inspiration: `POST /api/github`
 
-**Merge when target exists**: if today's journal already exists, incoming migrated tasks are merged into its `# 当日日程` section instead of bulk-appended. When an incoming top-level task's normalized text (with `🔄` stripped) matches an existing top-level task, its descendants are appended under the existing root — e.g. a rolled-over `数学 🔄` merges its subtasks under an already-present `数学` rather than creating a duplicate. Unmatched top-level tasks (and leaf roots that would self-nest) are appended at the end of the section as new roots. Indentation is preserved as-is.
+**Body:**
+```json
+{
+  "content": "# My idea\n\nDetails here...",
+  "priority": "p2",
+  "tags": ["tag1", "tag2"]
+}
+```
 
-When today's journal doesn't exist yet, the rollover **fetches the Obsidian template** from `Templates/Diary_Template.md` on GitHub (path configurable via `DIARY_TEMPLATE_PATH`). It replaces `{{date}}` / `{{DATE:YYYY-MM-DD}}` with the target date and injects undone tasks at `%%TODO_PLACEHOLDER%%`. If the placeholder isn't found, tasks are appended after `## 当日日程`. If the template fetch fails, a built-in fallback template is used — the script never crashes on a missing template file.
+### Push to Daily: `POST /api/daily`
 
-This tree-based approach eliminates the orphan-subtask bug (where old line-by-line filtering could split children from their parent, creating orphaned indented items on the target day).
+**Body:**
+```json
+{
+  "ideaId": "2026-06-19-113215",
+  "ideaTitle": "Learn Rust",
+  "date": "2026-06-20"
+}
+```
 
-**Real-time UI updates**: all mutations use optimistic updates — the UI applies changes immediately from the server response (or locally-computed content), avoiding the GitHub API's eventual-consistency delay. Patch appends, task toggles, task/subtask additions, and daily notes all update instantly without a re-fetch.
+**Response:** `409` if the inspiration is already in today's tasks (deduplication).
 
-## Deploy to Vercel
+### Daily Rollover: `GET /api/cron/rollover`
 
-1. Push this repo to GitHub
-2. Import in Vercel → root directory = `inspirations-farm-app`
-3. Add environment variables: `GITHUB_PAT`, `REPO_OWNER`, `REPO_NAME`, `APP_PIN`, `CRON_SECRET`
-4. Deploy → your custom domain serves the PWA over HTTPS
-5. Verify Cron Job is active in Vercel Dashboard → Cron Jobs
+**Auth:** `Authorization: Bearer <CRON_SECRET>` or `?secret=<CRON_SECRET>`
 
-## Changelog
+**Query Parameters:**
+- `dryRun=true` — Preview changes without writing to GitHub
+- `targetDate=YYYY-MM-DD` — Rollover from this date (for testing/backfill)
 
-See [docs/DEVLOG.md](docs/DEVLOG.md) for the full development log.
+**Example:**
+```bash
+# Dry run (safe preview)
+curl "https://your-app.vercel.app/api/cron/rollover?secret=YOUR_SECRET&dryRun=true"
 
-### v1.0.0 (2026-07-05)
+# Backfill a specific date
+curl "https://your-app.vercel.app/api/cron/rollover?secret=YOUR_SECRET&targetDate=2026-06-15"
+```
 
-**Audit & robustness**
-- YAML `status` updates moved from regex to structured `gray-matter` (with `JSON_SCHEMA` so date-like fields such as `create` stay strings — no timezone corruption).
-- `parseInspirationPatches` preserves multi-line patch content (continuation lines were previously dropped).
-- `calcIndent` uses `Math.floor` (a stray 1-space indent no longer counts as a level); `parseTasks` accepts `-`/`*`/`+` task-list markers.
-- `syncIdeasState` runs concurrently via `Promise.allSettled` (was sequential — risked Vercel timeouts).
-- `[-+*]` task-marker support made consistent across `cascade.ts`, `rollover.ts`, `insertSubtaskLine` (bullet preserved on toggle/rebuild).
-- Daily journals normalised to LF on read — CRLF files (Obsidian on Windows) no longer drop tasks/notes silently.
+---
 
-**Architecture**
-- `github.ts` split by SRP into `github-client.ts` (network) + `markdown-utils.ts` (markdown) + `github.ts` (business service). Public API unchanged.
-- Section insertion/parsing rewritten on mdast AST — code-block- and frontmatter-safe; byte-for-byte preservation (no full re-serialize).
+## 🛠️ Development
 
-**Consistency**
-- `modifyDailyJournal` wraps daily read-modify-write in 409-retry + a pre-read pause, fixing rapid-successive-write 409s and the silent data-loss from GitHub's eventual consistency.
+### Project Structure
+
+```
+inspirations-farm-app/
+├── src/
+│   ├── app/
+│   │   ├── api/              # API routes
+│   │   ├── layout.tsx        # Root layout with PWA setup
+│   │   ├── page.tsx          # Server entry point
+│   │   ├── home.tsx          # Client shell with PIN lock
+│   │   ├── inspiration-feed.tsx
+│   │   ├── daily-dashboard.tsx
+│   │   └── jottings-card.tsx
+│   ├── lib/
+│   │   ├── github-client.ts  # Low-level GitHub API
+│   │   ├── markdown-utils.ts # Markdown parsing (AST-based)
+│   │   ├── github.ts         # High-level data service
+│   │   ├── rollover.ts       # Daily task migration logic
+│   │   ├── cascade.ts        # Nested task toggle
+│   │   └── auth.ts           # PIN validation
+│   └── components/ui/        # shadcn/ui components
+├── public/
+│   ├── icon.svg              # PWA icon
+│   └── sw.js                 # Service worker
+└── vercel.json               # Cron schedule
+```
+
+### Build Commands
+
+```bash
+npm run dev        # Development server (localhost:3000)
+npm run build      # Production build
+npm run start      # Serve production build
+npm run lint       # ESLint check
+```
+
+### Code Architecture
+
+The codebase follows single-responsibility principles:
+
+- **`github-client.ts`**: Pure HTTP layer — fetch, auth, retry, base64
+- **`markdown-utils.ts`**: Pure Markdown parsing — AST-based, no network
+- **`github.ts`**: Business logic — orchestrates client + markdown utils
+- **API routes**: Thin controllers — validation, call lib functions, return JSON
+- **Components**: Presentation + local state — call API routes, render UI
+
+**Markdown Safety**: All section insertions use `mdast` AST parsing to locate headings. Code blocks and YAML frontmatter are separate node types, preventing false matches and file corruption.
+
+---
+
+## 🐛 Troubleshooting
+
+### "Unauthorized" / Lock Screen Won't Unlock
+
+- Check `APP_PIN` in `.env.local` matches what you're entering
+- Verify `x-app-pin` header is sent (check browser DevTools → Network)
+- In production: ensure Vercel environment variables are set
+
+### Tasks Not Rolling Over
+
+- Check Vercel Dashboard → Cron Jobs → verify "daily rollover" is active
+- Test manually: `GET /api/cron/rollover?secret=YOUR_SECRET&dryRun=true`
+- Check Vercel Function Logs for errors
+
+### Inspirations Not Saving
+
+- Verify `GITHUB_PAT` has `repo` scope
+- Check repo directories exist: `Inspirations/`, `Journal/Daily/`
+- Verify `REPO_OWNER` and `REPO_NAME` are correct
+- Check Network tab for API errors
+
+### Math Not Rendering
+
+- Ensure KaTeX CSS is imported in `globals.css`
+- Use `$...$` for inline, `$$...$$` for block equations
+- Check console for KaTeX errors (invalid LaTeX syntax)
+
+---
+
+## 📝 Changelog
+
+### v1.0.1 (2026-07-05)
+
+**Security & Reliability**
+- XSS protection with rehype-sanitize
+- Path traversal prevention in file operations
+- Network retry with exponential backoff
+- Input validation (10k chars content, 10 tags max)
+- Memory leak fixes (timer cleanup on unmount)
+- Race condition fix (await sequential deletes)
+
+**Robustness**
+- HTTP 409 conflict resolution with retry
+- GitHub eventual consistency handling (exponential backoff)
+- Concurrency limiting (10 parallel requests max)
+- Error boundaries for graceful degradation
+- Proper HTTP status codes (404 vs 500)
+
+**Accessibility**
+- ARIA labels on interactive buttons
+- Touch targets ≥44px
+- Screen reader support for toasts
+
+**Code Quality**
+- Split monolithic `github.ts` into client/utils/service layers
+- AST-based markdown parsing (code-block safe)
+- CRLF normalization for cross-platform compatibility
+
+### v1.0.0 (Initial Release)
+
+Core features: inspiration capture, daily tasks, rollover, PWA, GitHub backend.
+
+---
+
+## 📄 License
+
+MIT License - see LICENSE file for details.
+
+---
+
+## 🙏 Credits
+
+Built with:
+- [Next.js](https://nextjs.org/) by Vercel
+- [Tailwind CSS](https://tailwindcss.com/)
+- [shadcn/ui](https://ui.shadcn.com/)
+- [Radix UI](https://www.radix-ui.com/)
+- [react-markdown](https://github.com/remarkjs/react-markdown)
+- [KaTeX](https://katex.org/)
+- [Lucide Icons](https://lucide.dev/)
+
+---
+
+**Questions or Issues?** Open an issue on GitHub or check the troubleshooting section above.
