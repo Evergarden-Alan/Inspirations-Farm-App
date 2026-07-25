@@ -83,16 +83,18 @@ export async function githubFetch<T = unknown>(
 
   if (!res.ok) {
     const body = await res.text();
+    const safeMessage = `GitHub API error ${res.status}`;
+
+    // Log full error server-side for debugging, but only expose sanitized
+    // message to client to prevent leaking tokens, file paths, or internal details
+    console.error(`[githubFetch] ${path}:`, body.slice(0, 500));
+
     // 409 = stale SHA (someone wrote between our GET and PUT). Surface as a
     // typed error so callers can re-fetch the SHA and retry the write.
     if (res.status === 409) {
-      throw new GitHubConflictError(
-        `GitHub API error 409: ${body.slice(0, 500)}`
-      );
+      throw new GitHubConflictError(safeMessage);
     }
-    throw new Error(
-      `GitHub API error ${res.status}: ${body.slice(0, 500)}`
-    );
+    throw new Error(safeMessage);
   }
 
   return res.json() as Promise<T>;

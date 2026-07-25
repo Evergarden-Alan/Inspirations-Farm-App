@@ -6,6 +6,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
+import rehypeSanitize from "rehype-sanitize";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -136,7 +137,10 @@ export function JottingsCard({ initialNotes }: JottingsCardProps = {}) {
                   ">
                     <ReactMarkdown
                       remarkPlugins={[remarkGfm, remarkMath]}
-                      rehypePlugins={[[rehypeKatex, { strict: false, throwOnError: false, output: "html" }]]}
+                      rehypePlugins={[
+                        [rehypeKatex, { strict: false, throwOnError: false, output: "html" }],
+                        rehypeSanitize
+                      ]}
                     >
                       {n.text}
                     </ReactMarkdown>

@@ -8,6 +8,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
 import rehypeKatex from "rehype-katex";
+import rehypeSanitize from "rehype-sanitize";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -666,7 +667,10 @@ function InspirationCard({
             <div className={`${PROSE_CN} ${expanded ? "" : "line-clamp-2"}`}>
               <ReactMarkdown
                 remarkPlugins={[remarkGfm, remarkMath]}
-                rehypePlugins={[[rehypeKatex, { strict: false, throwOnError: false, output: "html" }]]}
+                rehypePlugins={[
+                  [rehypeKatex, { strict: false, throwOnError: false, output: "html" }],
+                  rehypeSanitize
+                ]}
               >
                 {item.content}
               </ReactMarkdown>
@@ -734,7 +738,10 @@ function InspirationCard({
                       <div className={PATCH_PROSE_CN}>
                         <ReactMarkdown
                           remarkPlugins={[remarkGfm, remarkMath]}
-                          rehypePlugins={[[rehypeKatex, { strict: false, throwOnError: false, output: "html" }]]}
+                          rehypePlugins={[
+                            [rehypeKatex, { strict: false, throwOnError: false, output: "html" }],
+                            rehypeSanitize
+                          ]}
                         >
                           {patch.content}
                         </ReactMarkdown>

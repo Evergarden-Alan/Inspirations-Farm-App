@@ -94,9 +94,12 @@ export async function POST(req: NextRequest) {
       // Read-modify-write with 409 retry. The modifier aborts (returns null) if
       // the ideaId is already present (duplicate), so the dedup check is
       // re-evaluated on each retry against fresh content.
-      const result = await modifyDailyJournal(date, (c) =>
-        c.includes(body.ideaId) ? null : insertIntoDailySection(c, taskLine)
-      );
+      // Use regex to avoid substring false positives (e.g. "2026-07-01-123456"
+      // incorrectly matching "2026-07-01-1234567").
+      const result = await modifyDailyJournal(date, (c) => {
+        const linkPattern = new RegExp(`\\[\\[${body.ideaId}(?:\\||\\]\\])`, "g");
+        return linkPattern.test(c) ? null : insertIntoDailySection(c, taskLine);
+      });
 
       if (result === null) {
         // Modifier aborted: ideaId already present (duplicate).

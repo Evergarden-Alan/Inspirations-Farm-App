@@ -189,8 +189,16 @@ export function parseTasks(markdown: string): DailyTask[] {
   const lines = markdown.split("\n");
   const tasks: DailyTask[] = [];
   let id = 0;
+
+  // Build a set of line numbers that are inside fenced code blocks to skip them
+  const codeLines = collectCodeLines(parseMarkdownAst(markdown));
+
   for (let lineNum = 0; lineNum < lines.length; lineNum++) {
     const line = lines[lineNum];
+
+    // Skip lines inside fenced code blocks - a `- [ ]` in a code example is NOT a real task
+    if (codeLines.has(lineNum + 1)) continue;
+
     // [ ] | [x] | [>] — '>' marks partially-done rollover tasks (kept as undone).
     // Bullet prefix accepts -, *, or + (all valid Markdown task-list markers).
     const match = line.match(/^(\s*)[-+*]\s*\[([ xX>])\]\s+(.*)$/);
@@ -282,7 +290,7 @@ type MdastRoot = ReturnType<typeof fromMarkdown>;
 
 /** Parse markdown to an mdast tree with YAML frontmatter parsed as a single
  *  node (its body isn't scanned for headings). Node positions are 1-based. */
-function parseMarkdownAst(content: string): MdastRoot {
+export function parseMarkdownAst(content: string): MdastRoot {
   return fromMarkdown(content, {
     extensions: [frontmatter(["yaml"])],
     mdastExtensions: [frontmatterFromMarkdown(["yaml"])],
@@ -345,7 +353,7 @@ type AstNodeLike = {
 /** 1-based line numbers covered by any `code` node (fenced or indented), so
  *  line-based scans can avoid treating code-block content as tasks. Walks the
  *  whole tree (code can nest inside list items). */
-function collectCodeLines(root: MdastRoot): Set<number> {
+export function collectCodeLines(root: MdastRoot): Set<number> {
   const codeLines = new Set<number>();
   const visit = (node: AstNodeLike): void => {
     if (node.type === "code" && node.position) {

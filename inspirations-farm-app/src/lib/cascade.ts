@@ -5,6 +5,8 @@
  * avoiding false matches from String.replace when tasks share the same text.
  */
 
+import { parseMarkdownAst, collectCodeLines } from "./markdown-utils";
+
 const TASK_RE = /^(\s*)[-+*]\s*\[([ xX>])\]\s+(.*)$/;
 
 /** Leading indent + bullet (-, *, or +) + checkbox state. Captures the bullet
@@ -61,6 +63,9 @@ export function cascadeToggleAtLine(
   const targetIndent = countIndent(targetLine);
   const targetWasDone = DONE_TASK_RE.test(targetLine);
 
+  // Build a set of line numbers inside fenced code blocks to skip them
+  const codeLines = collectCodeLines(parseMarkdownAst(content));
+
   // 1) Toggle the clicked line
   lines[lineIndex] = toggleCheckbox(targetLine);
   const newDone = !targetWasDone;
@@ -69,6 +74,9 @@ export function cascadeToggleAtLine(
   for (let i = lineIndex + 1; i < lines.length; i++) {
     const line = lines[i];
     if (line.trim() === "") continue;
+
+    // Skip lines inside fenced code blocks - don't cascade into code examples
+    if (codeLines.has(i + 1)) continue;
 
     const indent = countIndent(line);
     if (indent <= targetIndent) break; // back to same or shallower level → stop
@@ -81,7 +89,7 @@ export function cascadeToggleAtLine(
   }
 
   // 3) Upward cascade — recompute ancestors
-  recomputeAncestors(lines, lineIndex, targetIndent);
+  recomputeAncestors(lines, lineIndex, targetIndent, codeLines);
 
   return lines.join("\n");
 }
@@ -93,12 +101,16 @@ export function cascadeToggleAtLine(
 function recomputeAncestors(
   lines: string[],
   changedIndex: number,
-  changedIndent: number
+  changedIndent: number,
+  codeLines: Set<number>
 ): void {
   // Find the parent by walking up to the nearest task with less indent
   for (let p = changedIndex - 1; p >= 0; p--) {
     const parentLine = lines[p];
     if (parentLine.trim() === "") continue;
+
+    // Skip lines inside fenced code blocks
+    if (codeLines.has(p + 1)) continue;
 
     const parentIndent = countIndent(parentLine);
     if (parentIndent >= changedIndent) continue; // sibling or child — keep going up
@@ -113,6 +125,9 @@ function recomputeAncestors(
     for (let d = p + 1; d < lines.length; d++) {
       const descLine = lines[d];
       if (descLine.trim() === "") continue;
+
+      // Skip lines inside fenced code blocks when checking descendants
+      if (codeLines.has(d + 1)) continue;
 
       const descIndent = countIndent(descLine);
       if (descIndent <= parentIndent) break; // past this parent's subtree

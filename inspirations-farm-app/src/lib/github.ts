@@ -179,9 +179,11 @@ export async function listInspirationsWithContent(): Promise<
         const { frontmatter, body } = parseMarkdown(raw);
         const title = extractTitle(body);
 
-        // Extract create date from raw string to bypass gray-matter date coercion
-        const createMatch = raw.match(/^create:\s*(.+)$/m);
-        const createdAt = createMatch ? createMatch[1].trim() : String(frontmatter.create ?? "");
+        // SECURITY: Extract create date ONLY from parsed frontmatter, not from raw
+        // string scan. A raw regex scan would let malicious content in the body
+        // inject a fake "create: <timestamp>" line to manipulate sort order.
+        // gray-matter's date coercion is prevented by JSON_SCHEMA in parseFrontmatter.
+        const createdAt = String(frontmatter.create ?? "");
 
         // Parse content and patches, splitting at ## 追加记录
         const stripped = stripHeading(body);
@@ -615,32 +617,55 @@ export async function loadDiaryTemplate(date: string): Promise<string> {
   }
 }
 
-/** Update a daily journal file with new content */
+/** Update a daily journal file with new content. Retries on 409 (stale SHA) by
+ *  re-fetching the current content + fresh SHA and re-applying the update if the
+ *  content still differs. */
 export async function updateDailyJournal(
   filePath: string,
   sha: string,
   content: string
 ): Promise<{ sha: string }> {
-  const { owner, repo } = getConfig();
+  return withConflictRetry(async () => {
+    const { owner, repo } = getConfig();
 
-  const encoded = encodeBase64(content);
+    // On a 409 retry, re-fetch the current content to check if another write
+    // already applied the same change (e.g. a duplicate request).
+    const data = await githubFetch<{
+      sha: string;
+      content: string;
+      encoding: string;
+    }>(`/repos/${owner}/${repo}/contents/${filePath}`);
 
-  console.log(`[updateDailyJournal] PUT ${filePath} (sha=${sha})`);
-  const result = await githubFetch<{ content: { sha: string } }>(
-    `/repos/${owner}/${repo}/contents/${filePath}`,
-    {
-      method: "PUT",
-      body: JSON.stringify({
-        message: `Update daily journal`,
-        content: encoded,
-        sha,
-      }),
-      headers: { "Content-Type": "application/json" },
+    if (data.encoding !== "base64") {
+      throw new Error(`Unexpected encoding: ${data.encoding}`);
     }
-  );
+    const currentContent = decodeBase64(data.content).replace(/\r\n?/g, "\n");
 
-  console.log(`[updateDailyJournal] OK → new sha=${result.content.sha}`);
-  return { sha: result.content.sha };
+    // If the file already has the desired content, skip the write (idempotent).
+    if (currentContent === content) {
+      console.log(`[updateDailyJournal] ${filePath} already up-to-date (sha=${data.sha})`);
+      return { sha: data.sha };
+    }
+
+    const encoded = encodeBase64(content);
+
+    console.log(`[updateDailyJournal] PUT ${filePath} (sha=${data.sha})`);
+    const result = await githubFetch<{ content: { sha: string } }>(
+      `/repos/${owner}/${repo}/contents/${filePath}`,
+      {
+        method: "PUT",
+        body: JSON.stringify({
+          message: `Update daily journal`,
+          content: encoded,
+          sha: data.sha,
+        }),
+        headers: { "Content-Type": "application/json" },
+      }
+    );
+
+    console.log(`[updateDailyJournal] OK → new sha=${result.content.sha}`);
+    return { sha: result.content.sha };
+  });
 }
 
 /**

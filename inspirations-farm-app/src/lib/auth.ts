@@ -21,8 +21,15 @@ function safeEqual(a: string, b: string): boolean {
 export function validatePin(req: NextRequest): boolean {
   const expected = process.env.APP_PIN;
   if (!expected) {
-    // If APP_PIN is not configured, allow all requests (dev mode)
-    return true;
+    // SECURITY: Default to deny-all if APP_PIN not configured. Only allow in
+    // explicit development mode (NODE_ENV=development) to prevent accidental
+    // production exposure from misconfigured environment variables.
+    if (process.env.NODE_ENV === "development") {
+      console.warn("[AUTH] APP_PIN not set — allowing requests in development mode");
+      return true;
+    }
+    console.error("[AUTH] APP_PIN not configured in production — DENYING all requests");
+    return false;
   }
   const provided = req.headers.get("x-app-pin") ?? "";
   return safeEqual(provided, expected);
