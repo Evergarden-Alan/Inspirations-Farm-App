@@ -47,7 +47,7 @@ export function TabLayout({ todayPanel, inspirationsPanel, jottingsPanel }: Prop
   return (
     <>
       {/* ── Mobile: single-panel view ─────────────────────── */}
-      <div className="lg:hidden p-4 pb-[calc(5.5rem+env(safe-area-inset-bottom))]">
+      <div className="px-4 pb-[calc(9rem+env(safe-area-inset-bottom))] pt-5 lg:hidden">
         <AnimatePresence mode="wait" initial={false}>
           <motion.div
             key={activeTab}
@@ -62,23 +62,23 @@ export function TabLayout({ todayPanel, inspirationsPanel, jottingsPanel }: Prop
       </div>
 
       {/* ── Desktop: 2-column grid ────────────────────────── */}
-      <div className="hidden lg:grid grid-cols-2 gap-6 max-w-7xl mx-auto p-4 pb-[calc(6rem+env(safe-area-inset-bottom))]">
-        <div className="flex flex-col gap-6">
+      <div className="mx-auto hidden max-w-[1400px] grid-cols-[minmax(0,0.88fr)_minmax(0,1.12fr)] items-start gap-8 px-8 pb-24 pt-6 lg:grid xl:gap-10">
+        <div className="flex flex-col gap-8">
           {todayPanel}
           {jottingsPanel}
         </div>
-        <div className="flex flex-col gap-6">
+        <div className="flex min-w-0 flex-col gap-8">
           {inspirationsPanel}
         </div>
       </div>
 
       {/* ── Bottom tab bar — mobile only ─────────────────── */}
       <nav
-        className="fixed bottom-0 inset-x-0 z-30 lg:hidden bg-white/90 backdrop-blur-md border-t border-slate-200/60"
-        style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
+        className="farm-mobile-nav fixed inset-x-3 z-30 mx-auto max-w-md lg:hidden"
+        style={{ bottom: "calc(0.75rem + env(safe-area-inset-bottom))" }}
         aria-label="主导航"
       >
-        <div className="flex">
+        <div className="flex p-1.5">
           {TABS.map(({ id, label, icon }) => {
             const active = activeTab === id;
             return (
@@ -86,14 +86,14 @@ export function TabLayout({ todayPanel, inspirationsPanel, jottingsPanel }: Prop
                 key={id}
                 onClick={() => setActiveTab(id)}
                 aria-current={active ? "page" : undefined}
-                className={`flex-1 flex flex-col items-center gap-1 py-2.5 text-[11px] font-medium transition-colors touch-manipulation min-h-[52px] ${
+                className={`relative flex min-h-[54px] flex-1 touch-manipulation flex-col items-center justify-center gap-1 rounded-2xl py-2 text-[11px] font-medium transition-all ${
                   active
-                    ? "text-emerald-600"
-                    : "text-slate-400 hover:text-slate-600"
+                    ? "bg-[var(--farm-green)] text-white shadow-sm"
+                    : "text-[var(--farm-muted)] hover:bg-[var(--farm-paper-deep)] hover:text-[var(--farm-ink)]"
                 }`}
               >
                 <span
-                  className={`transition-transform duration-150 ${
+                  className={`transition-transform duration-200 ${
                     active ? "scale-110" : "scale-100"
                   }`}
                 >

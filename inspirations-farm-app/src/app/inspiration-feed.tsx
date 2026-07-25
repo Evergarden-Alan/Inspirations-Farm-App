@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Check, Trash2, Send, MessageSquarePlus, Loader2, ChevronDown, ChevronUp, Undo2, MoreHorizontal } from "lucide-react";
+import { Check, Trash2, Send, MessageSquarePlus, Loader2, ChevronDown, ChevronUp, Undo2, MoreHorizontal, Sprout } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -12,7 +12,7 @@ import rehypeSanitize from "rehype-sanitize";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import { getSurvivalLabel, getSurvivalColor } from "@/lib/time";
 import { apiFetch, AuthError } from "@/lib/api";
 import { toast } from "@/app/toast";
@@ -20,7 +20,7 @@ import { getBeijingDateString } from "@/lib/beijing-time";
 
 // ── Shared prose class string ──────────────────────────────
 const PROSE_CN =
-  "prose prose-sm prose-slate max-w-none break-words " +
+  "prose prose-sm prose-slate max-w-none break-words text-[#526057] " +
   "prose-p:my-0.5 prose-p:leading-relaxed prose-p:text-xs " +
   "prose-ul:my-0.5 prose-ol:my-0.5 " +
   "prose-li:my-1 prose-li:text-xs prose-li:leading-relaxed " +
@@ -34,7 +34,7 @@ const PROSE_CN =
   "prose-table:text-xs prose-th:text-xs prose-td:text-xs";
 
 const PATCH_PROSE_CN =
-  "text-xs text-slate-500 leading-relaxed prose prose-sm prose-slate max-w-none break-words " +
+  "text-xs text-[#667168] leading-relaxed prose prose-sm prose-slate max-w-none break-words " +
   "prose-p:my-0 prose-p:text-xs prose-p:leading-relaxed " +
   "prose-a:text-blue-600 prose-a:no-underline hover:prose-a:underline " +
   "prose-code:text-[11px] prose-code:bg-slate-100 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:font-mono prose-code:before:content-none prose-code:after:content-none " +
@@ -63,9 +63,10 @@ interface InspirationFeedProps {
 
 export function InspirationFeed({ initialItems }: InspirationFeedProps = {}) {
   const [content, setContent] = useState("");
-  const [items, setItems] = useState<Inspiration[]>([]);
+  const [items, setItems] = useState<Inspiration[]>(() =>
+    initialItems?.filter((item) => item.status !== "completed") ?? []
+  );
   const [loading, setLoading] = useState(!initialItems);
-  const seeded = useRef(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
@@ -96,21 +97,19 @@ export function InspirationFeed({ initialItems }: InspirationFeedProps = {}) {
   }, []);
 
   useEffect(() => {
-    // Seed from server-provided data on first mount
-    if (initialItems && !seeded.current) {
-      seeded.current = true;
-      setItems(initialItems.filter((i: Inspiration) => i.status !== "completed"));
-      setLoading(false);
-    } else if (!initialItems) {
-      fetchItems();
-    }
+    const initialFetchTimer = !initialItems
+      ? setTimeout(() => void fetchItems(), 0)
+      : undefined;
 
     // Listen for inspiration updates from other components (e.g. task archive)
     function handleUpdate() {
       fetchItems();
     }
     window.addEventListener("inspiration:updated", handleUpdate);
-    return () => window.removeEventListener("inspiration:updated", handleUpdate);
+    return () => {
+      if (initialFetchTimer) clearTimeout(initialFetchTimer);
+      window.removeEventListener("inspiration:updated", handleUpdate);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -398,10 +397,18 @@ export function InspirationFeed({ initialItems }: InspirationFeedProps = {}) {
   return (
     <div className="space-y-5 pb-12">
       {/* Section header */}
-      <div className="flex items-center justify-between">
-        <h2 className="text-base font-semibold text-slate-700">🌱 灵感池</h2>
+      <div className="flex items-center justify-between gap-4">
+        <div className="flex items-center gap-3">
+          <div className="farm-section-icon">
+            <Sprout className="size-5" strokeWidth={1.8} />
+          </div>
+          <div>
+            <p className="farm-kicker mb-0.5">SEED BANK</p>
+            <h2 className="farm-display text-2xl font-semibold text-[var(--farm-ink)]">灵感种子库</h2>
+          </div>
+        </div>
         {items.length > 0 && (
-          <span className="text-xs text-slate-400 tabular-nums">
+          <span className="rounded-full border border-[var(--farm-line)] bg-[var(--farm-paper)]/70 px-3 py-1 text-xs tabular-nums text-[var(--farm-muted)]">
             {filteredItems.length !== items.length
               ? `${filteredItems.length} / ${items.length}`
               : `${items.length} 条`}
@@ -410,12 +417,19 @@ export function InspirationFeed({ initialItems }: InspirationFeedProps = {}) {
       </div>
 
       {/* Capture Zone — desktop only; mobile uses FAB */}
-      <section className="hidden lg:block space-y-3">
+      <section className="farm-capture-zone hidden space-y-3 lg:block">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="farm-display text-lg font-semibold text-[var(--farm-ink)]">种下一个新念头</p>
+            <p className="text-xs text-[var(--farm-muted)]">不用完整，先让它有一个落脚处。</p>
+          </div>
+          <Sprout className="size-5 text-[var(--farm-green)]/70" strokeWidth={1.6} />
+        </div>
         <Textarea
           ref={textareaRef}
           placeholder="此刻有什么灵感..."
           rows={3}
-          className="min-h-[64px] resize-none bg-white border-slate-200 focus-visible:ring-emerald-500 text-base"
+          className="farm-input min-h-[92px] resize-none rounded-2xl text-base leading-relaxed"
           value={content}
           onChange={handleChange}
           onKeyDown={handleKeyDown}
@@ -426,7 +440,7 @@ export function InspirationFeed({ initialItems }: InspirationFeedProps = {}) {
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           {/* Priority selector */}
           <div className="flex items-center gap-1">
-            <span className="text-xs text-slate-400 mr-1">优先级</span>
+            <span className="mr-1 text-[10px] font-semibold tracking-[0.12em] text-[var(--farm-muted)]">优先级</span>
             {["p0", "p1", "p2", "p3"].map((p) => {
               const active = newPriority === p;
               const color =
@@ -448,7 +462,7 @@ export function InspirationFeed({ initialItems }: InspirationFeedProps = {}) {
                   className={`px-2 py-0.5 text-xs rounded border transition-colors ${
                     active
                       ? `${color} font-medium`
-                      : "border-transparent text-slate-400 hover:bg-slate-100"
+                      : "border-transparent text-[var(--farm-muted)] hover:bg-[var(--farm-paper-deep)]"
                   }`}
                 >
                   {p.toUpperCase()}
@@ -463,32 +477,33 @@ export function InspirationFeed({ initialItems }: InspirationFeedProps = {}) {
             value={newTags}
             onChange={(e: React.ChangeEvent<HTMLInputElement>) => setNewTags(e.target.value)}
             disabled={submitting}
-            className="h-8 text-xs border-slate-200 focus-visible:ring-emerald-500 sm:max-w-[180px]"
+            className="farm-input h-9 text-xs sm:max-w-[190px]"
           />
         </div>
 
         <div className="flex items-center justify-between">
-          <span className="text-xs text-slate-400">Ctrl + Enter 快捷发送</span>
+          <span className="font-mono text-[10px] tracking-wide text-[var(--farm-muted)]">CTRL + ENTER · 快捷种下</span>
           <Button
             onClick={handlePlant}
             disabled={submitting || !content.trim()}
-            className="bg-emerald-600 hover:bg-emerald-700 text-white gap-1.5 px-5 min-h-[44px]"
+            className="farm-primary-button min-h-[44px] gap-1.5 px-5"
           >
-            {submitting ? "种下中..." : "种下灵感 🌱"}
+            {!submitting && <Sprout className="size-4" />}
+            {submitting ? "种下中..." : "种下灵感"}
           </Button>
         </div>
       </section>
 
       {/* Error */}
       {error && (
-        <p className="text-sm text-red-500 bg-red-50 rounded-lg px-3 py-2">
+        <p className="rounded-xl bg-red-50 px-3 py-2 text-sm text-red-600">
           {error}
         </p>
       )}
 
       {/* Filter Bar */}
       {items.length > 0 && (
-        <section className="space-y-1.5">
+        <section className="space-y-2 rounded-2xl border border-[var(--farm-line)]/80 bg-[var(--farm-paper)]/45 p-2.5">
           {/* Priority filter — scrollable on mobile */}
           <div className="flex items-center gap-1.5 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden pb-0.5 -mx-1 px-1 flex-nowrap sm:flex-wrap">
             {["all", "p0", "p1", "p2", "p3"].map((p) => {
@@ -516,7 +531,7 @@ export function InspirationFeed({ initialItems }: InspirationFeedProps = {}) {
                   className={`flex items-center gap-1 px-2.5 py-1 text-xs rounded-full transition-colors min-h-[32px] touch-manipulation ${
                     active
                       ? `${color} font-medium`
-                      : "text-slate-400 hover:text-slate-600 hover:bg-slate-100"
+                      : "text-[var(--farm-muted)] hover:bg-[var(--farm-paper-deep)] hover:text-[var(--farm-ink)]"
                   }`}
                 >
                   {label}
@@ -535,8 +550,8 @@ export function InspirationFeed({ initialItems }: InspirationFeedProps = {}) {
                 onClick={() => setFilterTag("all")}
                 className={`px-2.5 py-1 text-xs rounded-full transition-colors min-h-[32px] touch-manipulation shrink-0 ${
                   filterTag === "all"
-                    ? "bg-slate-200 text-slate-700 font-medium"
-                    : "text-slate-400 hover:text-slate-600 hover:bg-slate-100"
+                    ? "bg-[var(--farm-green)] text-white font-medium"
+                    : "text-[var(--farm-muted)] hover:bg-[var(--farm-paper-deep)] hover:text-[var(--farm-ink)]"
                 }`}
               >
                 全部
@@ -547,8 +562,8 @@ export function InspirationFeed({ initialItems }: InspirationFeedProps = {}) {
                   onClick={() => setFilterTag(tag)}
                   className={`px-2 py-0.5 text-xs rounded-full transition-colors min-h-[32px] touch-manipulation shrink-0 ${
                     filterTag === tag
-                      ? "bg-slate-200 text-slate-700 font-medium"
-                      : "bg-slate-100 text-slate-500 hover:bg-slate-200"
+                      ? "bg-[var(--farm-green)] text-white font-medium"
+                      : "bg-[var(--farm-paper-deep)] text-[var(--farm-muted)] hover:text-[var(--farm-ink)]"
                   }`}
                 >
                   {tag}
@@ -567,12 +582,12 @@ export function InspirationFeed({ initialItems }: InspirationFeedProps = {}) {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 8 }}
             transition={{ duration: 0.18 }}
-            className="flex items-center justify-between gap-3 px-3 py-2 bg-slate-800 text-white text-sm rounded-lg"
+            className="flex items-center justify-between gap-3 rounded-xl bg-[var(--farm-ink)] px-3 py-2 text-sm text-white shadow-lg"
           >
-            <span className="text-slate-300 text-xs">已删除「{pendingDelete.item.title}」</span>
+            <span className="text-xs text-white/70">已删除「{pendingDelete.item.title}」</span>
             <button
               onClick={handleUndoDelete}
-              className="flex items-center gap-1 text-xs text-emerald-400 hover:text-emerald-300 font-medium shrink-0"
+              className="flex shrink-0 items-center gap-1 text-xs font-medium text-[#b8d6bc] hover:text-white"
             >
               <Undo2 className="w-3.5 h-3.5" />
               撤销
@@ -584,16 +599,16 @@ export function InspirationFeed({ initialItems }: InspirationFeedProps = {}) {
       {/* Timeline */}
       <section className="space-y-3">
         {loading ? (
-          <p className="text-center text-sm text-slate-400 py-12">
-            正在加载灵感...
+          <p className="py-12 text-center text-sm text-[var(--farm-muted)]">
+            正在翻找灵感种子...
           </p>
         ) : filteredItems.length === 0 ? (
           <motion.p
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
-            className="text-center text-sm text-slate-400 py-12"
+            className="py-12 text-center text-sm text-[var(--farm-muted)]"
           >
-            {items.length === 0 ? "还没有灵感，种下第一个吧 🌱" : "没有匹配的灵感"}
+            {items.length === 0 ? "种子库还是空的，种下第一个念头吧。" : "没有匹配的灵感"}
           </motion.p>
         ) : (
           <AnimatePresence initial={false}>
@@ -662,10 +677,10 @@ function InspirationCard({
 
   // Priority → left border class
   const priorityBorder: Record<string, string> = {
-    p0: "border-l-red-500",
-    p1: "border-l-amber-500",
-    p2: "border-l-blue-400",
-    p3: "border-l-slate-300",
+    p0: "farm-seed-p0",
+    p1: "farm-seed-p1",
+    p2: "farm-seed-p2",
+    p3: "farm-seed-p3",
   };
   const borderColor = priorityBorder[item.priority] || priorityBorder.p2;
 
@@ -678,14 +693,17 @@ function InspirationCard({
 
   return (
     <Card
-      className={`bg-white border-slate-200/60 shadow-sm group overflow-hidden border-l-4 ${borderColor}`}
+      className={`farm-panel farm-seed-card group overflow-hidden transition-transform duration-200 hover:-translate-y-0.5 ${borderColor}`}
     >
-      <CardContent className="px-4 pt-4 pb-2 space-y-2.5">
+      <CardContent className="space-y-3 px-5 pb-3 pt-5">
         {/* Title */}
-        <div className="flex items-start gap-2">
-          <p className="text-sm font-semibold text-slate-800 leading-snug">
+        <div className="flex items-start justify-between gap-3">
+          <p className="farm-display text-base font-semibold leading-snug text-[var(--farm-ink)]">
             {item.title}
           </p>
+          <span className="rounded-full bg-[var(--farm-paper-deep)] px-2 py-0.5 font-mono text-[9px] font-semibold tracking-wider text-[var(--farm-muted)]">
+            {item.priority?.toUpperCase() || "P2"}
+          </span>
         </div>
 
         {/* Content preview with expand/collapse */}
@@ -706,7 +724,7 @@ function InspirationCard({
             {item.content.length > 80 && (
               <button
                 onClick={() => setExpanded((v) => !v)}
-                className="mt-0.5 flex items-center gap-0.5 text-[11px] text-slate-400 hover:text-slate-600 transition-colors min-h-[32px] px-1 -mx-1 touch-manipulation"
+                className="-mx-1 mt-0.5 flex min-h-[32px] touch-manipulation items-center gap-0.5 px-1 text-[11px] text-[var(--farm-muted)] transition-colors hover:text-[var(--farm-ink)]"
               >
                 {expanded ? (
                   <><ChevronUp className="w-3 h-3" />收起</>
@@ -724,7 +742,7 @@ function InspirationCard({
             {item.tags.filter(Boolean).map((tag) => (
               <span
                 key={tag}
-                className="px-2 py-0.5 text-xs rounded-full bg-slate-100 text-slate-600"
+                className="rounded-full bg-[var(--farm-green-soft)]/70 px-2 py-0.5 text-xs text-[var(--farm-green)]"
               >
                 {tag}
               </span>
@@ -735,10 +753,10 @@ function InspirationCard({
         {/* Patches timeline — collapsible */}
         {item.patches && item.patches.length > 0 && (
           <div>
-            <div className="border-t border-slate-100 my-2" />
+            <div className="my-2 border-t border-[var(--farm-line)]/70" />
             <button
               onClick={() => setPatchesExpanded((v) => !v)}
-              className="flex items-center gap-1 text-[11px] text-slate-400 hover:text-slate-600 transition-colors min-h-[28px] touch-manipulation"
+              className="flex min-h-[28px] touch-manipulation items-center gap-1 text-[11px] text-[var(--farm-muted)] transition-colors hover:text-[var(--farm-ink)]"
             >
               {patchesExpanded
                 ? <><ChevronUp className="w-3 h-3" />{item.patches.length}条更新</>
@@ -757,9 +775,9 @@ function InspirationCard({
                   {item.patches.map((patch, idx) => (
                     <div
                       key={idx}
-                      className="pl-2.5 border-l-2 border-slate-200 space-y-0.5"
+                      className="space-y-0.5 border-l-2 border-[var(--farm-line)] pl-2.5"
                     >
-                      <span className="text-[11px] text-slate-400 font-mono">
+                      <span className="font-mono text-[11px] text-[var(--farm-muted)]">
                         {patch.time}
                       </span>
                       <div className={PATCH_PROSE_CN}>
@@ -800,20 +818,20 @@ function InspirationCard({
                 onKeyDown={handleAppendKeyDown}
                 disabled={disabled}
                 rows={2}
-                className="w-full text-sm rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 resize-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400 placeholder:text-slate-400 disabled:opacity-50"
+                className="farm-input w-full resize-none rounded-xl border px-3 py-2 text-sm placeholder:text-[var(--farm-muted)] disabled:opacity-50"
               />
               <div className="flex items-center justify-end gap-2">
                 <button
                   onClick={() => onAppendToggle(null)}
                   disabled={disabled}
-                  className="px-3 py-1.5 text-xs text-slate-500 hover:text-slate-700 rounded-md hover:bg-slate-100 transition-colors min-w-[44px] min-h-[44px] touch-manipulation"
+                  className="min-h-[44px] min-w-[44px] touch-manipulation rounded-lg px-3 py-1.5 text-xs text-[var(--farm-muted)] transition-colors hover:bg-[var(--farm-paper-deep)] hover:text-[var(--farm-ink)]"
                 >
                   取消
                 </button>
                 <button
                   onClick={() => onAppend(item)}
                   disabled={disabled || !appendText.trim()}
-                  className="px-3 py-1.5 text-xs text-white bg-emerald-600 hover:bg-emerald-700 rounded-md transition-colors disabled:opacity-40 min-w-[44px] min-h-[44px] touch-manipulation"
+                  className="farm-primary-button min-h-[44px] min-w-[44px] touch-manipulation px-3 py-1.5 text-xs transition-colors disabled:opacity-40"
                 >
                   {disabled ? "追加中..." : "发送"}
                 </button>
@@ -823,7 +841,7 @@ function InspirationCard({
         </AnimatePresence>
 
         {/* Footer: survival time + actions */}
-        <div className="flex items-center justify-between pt-2 border-t border-slate-100">
+        <div className="flex items-center justify-between border-t border-[var(--farm-line)]/70 pt-2">
           <div className="flex items-center gap-2">
             <span className={`text-xs ${survivalColor}`}>{survival}</span>
           </div>
@@ -835,8 +853,8 @@ function InspirationCard({
               disabled={disabled || pushing}
               className={`flex items-center justify-center min-w-[44px] min-h-[44px] rounded-lg transition-all md:opacity-0 md:group-hover:opacity-100 touch-manipulation ${
                 pushing
-                  ? "bg-slate-200 text-slate-400 cursor-not-allowed"
-                  : "text-slate-400 hover:text-blue-600 hover:bg-blue-50 active:bg-blue-100"
+                  ? "cursor-not-allowed bg-[var(--farm-paper-deep)] text-[var(--farm-muted)]"
+                  : "text-[var(--farm-muted)] hover:bg-[var(--farm-green-soft)] hover:text-[var(--farm-green)] active:bg-[var(--farm-green-soft)]"
               }`}
               title="推送到今日"
             >
@@ -853,7 +871,7 @@ function InspirationCard({
                 appending ? onAppendToggle(null) : onAppendToggle(item)
               }
               disabled={disabled}
-              className="flex items-center justify-center min-w-[44px] min-h-[44px] rounded-lg text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 active:bg-emerald-100 transition-all disabled:opacity-30 md:opacity-0 md:group-hover:opacity-100 touch-manipulation"
+              className="flex min-h-[44px] min-w-[44px] touch-manipulation items-center justify-center rounded-lg text-[var(--farm-muted)] transition-all hover:bg-[var(--farm-green-soft)] hover:text-[var(--farm-green)] active:bg-[var(--farm-green-soft)] disabled:opacity-30 md:opacity-0 md:group-hover:opacity-100"
               title="追加记录"
             >
               <MessageSquarePlus className="w-4 h-4" />
@@ -863,7 +881,7 @@ function InspirationCard({
             <button
               onClick={() => onComplete(item)}
               disabled={disabled}
-              className="flex items-center justify-center min-w-[44px] min-h-[44px] rounded-lg text-slate-400 hover:text-emerald-600 hover:bg-emerald-50 active:bg-emerald-100 transition-all disabled:opacity-30 md:opacity-0 md:group-hover:opacity-100 touch-manipulation"
+              className="flex min-h-[44px] min-w-[44px] touch-manipulation items-center justify-center rounded-lg text-[var(--farm-muted)] transition-all hover:bg-[var(--farm-green-soft)] hover:text-[var(--farm-green)] active:bg-[var(--farm-green-soft)] disabled:opacity-30 md:opacity-0 md:group-hover:opacity-100"
               title="完成"
             >
               <Check className="w-5 h-5" />
@@ -874,7 +892,7 @@ function InspirationCard({
               <button
                 onClick={() => setMenuOpen((v) => !v)}
                 disabled={disabled}
-                className="flex items-center justify-center min-w-[44px] min-h-[44px] rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-100 active:bg-slate-200 transition-all disabled:opacity-30 md:opacity-0 md:group-hover:opacity-100 touch-manipulation"
+                className="flex min-h-[44px] min-w-[44px] touch-manipulation items-center justify-center rounded-lg text-[var(--farm-muted)] transition-all hover:bg-[var(--farm-paper-deep)] hover:text-[var(--farm-ink)] disabled:opacity-30 md:opacity-0 md:group-hover:opacity-100"
                 title="更多操作"
                 aria-expanded={menuOpen}
                 aria-haspopup="menu"
@@ -895,7 +913,7 @@ function InspirationCard({
                       exit={{ opacity: 0, scale: 0.92, y: -4 }}
                       transition={{ duration: 0.12 }}
                       role="menu"
-                      className="absolute right-0 bottom-full mb-1 z-20 bg-white border border-slate-200 rounded-xl shadow-lg py-1 min-w-[110px]"
+                      className="absolute bottom-full right-0 z-20 mb-1 min-w-[110px] rounded-xl border border-[var(--farm-line)] bg-[var(--farm-paper)] py-1 shadow-lg"
                     >
                       <button
                         role="menuitem"

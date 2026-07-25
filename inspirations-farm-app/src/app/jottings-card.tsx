@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef } from "react";
-import { Clock, Check } from "lucide-react";
+import { useEffect, useState, useCallback } from "react";
+import { Clock, Check, NotebookPen } from "lucide-react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
@@ -26,9 +26,8 @@ interface JottingsCardProps {
 }
 
 export function JottingsCard({ initialNotes }: JottingsCardProps = {}) {
-  const [notes, setNotes] = useState<DailyNote[]>([]);
+  const [notes, setNotes] = useState<DailyNote[]>(() => initialNotes?.notes ?? []);
   const [loading, setLoading] = useState(!initialNotes);
-  const seeded = useRef(false);
   const [noteText, setNoteText] = useState("");
   const [acting, setActing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -50,21 +49,19 @@ export function JottingsCard({ initialNotes }: JottingsCardProps = {}) {
   }, [date]);
 
   useEffect(() => {
-    // Seed from server-provided data on first mount
-    if (initialNotes && !seeded.current) {
-      seeded.current = true;
-      setNotes(initialNotes.notes ?? []);
-      // loading already set to false via useState initializer
-    } else if (!initialNotes) {
-      fetchNotes();
-    }
+    const initialFetchTimer = !initialNotes
+      ? setTimeout(() => void fetchNotes(), 0)
+      : undefined;
 
     // Refresh when another component modifies the daily journal
     function handleDailyUpdate() {
       fetchNotes();
     }
     window.addEventListener("daily:updated", handleDailyUpdate);
-    return () => window.removeEventListener("daily:updated", handleDailyUpdate);
+    return () => {
+      if (initialFetchTimer) clearTimeout(initialFetchTimer);
+      window.removeEventListener("daily:updated", handleDailyUpdate);
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -97,38 +94,46 @@ export function JottingsCard({ initialNotes }: JottingsCardProps = {}) {
 
   // ── Render ──────────────────────────────────────────
   return (
-    <Card className="bg-white border-slate-200/60 shadow-sm">
-      <CardHeader className="pb-3">
-        <CardTitle className="text-base font-semibold text-slate-700">
-          📝 今日杂记
-        </CardTitle>
+    <Card className="farm-panel">
+      <CardHeader className="pb-4 pt-1">
+        <div className="flex items-center gap-3">
+          <div className="farm-section-icon">
+            <NotebookPen className="size-5" strokeWidth={1.8} />
+          </div>
+          <div>
+            <p className="farm-kicker mb-0.5">JOTTINGS</p>
+            <CardTitle className="farm-display text-xl font-semibold text-[var(--farm-ink)]">
+              今日杂记
+            </CardTitle>
+          </div>
+        </div>
       </CardHeader>
 
       <CardContent className="space-y-3">
         {error && (
-          <p className="text-xs text-red-500 bg-red-50 rounded-lg px-3 py-2">{error}</p>
+          <p className="rounded-xl bg-red-50 px-3 py-2 text-xs text-red-600">{error}</p>
         )}
 
         {/* Notes timeline */}
         {loading ? (
-          <p className="text-sm text-slate-400 text-center py-4">加载中...</p>
+          <p className="py-4 text-center text-sm text-[var(--farm-muted)]">正在翻找今天的记录...</p>
         ) : notes.length === 0 ? (
-          <p className="text-xs text-slate-400 text-center py-3">还没有杂记，随手记一笔吧</p>
+          <p className="py-5 text-center text-xs text-[var(--farm-muted)]">风吹过了，留下一点文字吧。</p>
         ) : (
           <div className="relative pl-3">
             {/* Vertical timeline line */}
-            <div className="absolute left-0 top-1 bottom-1 w-px bg-slate-100" />
+            <div className="absolute bottom-1 left-0 top-1 w-px bg-[var(--farm-line)]" />
 
             <div className="space-y-3">
               {notes.map((n, i) => (
                 <div key={i} className="flex items-start gap-2.5 text-sm relative">
                   {/* Timeline dot */}
-                  <div className="absolute -left-3.5 top-1.5 w-2 h-2 rounded-full bg-slate-200 border border-white ring-1 ring-slate-200 shrink-0" />
+                  <div className="absolute -left-3.5 top-1.5 h-2 w-2 shrink-0 rounded-full border border-white bg-[var(--farm-green-soft)] ring-1 ring-[var(--farm-green)]/25" />
 
-                  <span className="text-[11px] text-slate-400 font-mono shrink-0 mt-0.5 w-10 leading-relaxed">
+                  <span className="mt-0.5 w-10 shrink-0 font-mono text-[11px] leading-relaxed text-[var(--farm-muted)]">
                     {n.time}
                   </span>
-                  <div className="text-slate-600 leading-relaxed min-w-0 prose prose-sm prose-slate max-w-none break-words
+                  <div className="min-w-0 max-w-none break-words text-[#4f5e55] prose prose-sm prose-slate leading-relaxed
                     prose-p:my-0 prose-p:text-sm prose-p:leading-relaxed
                     prose-a:text-blue-600 prose-a:no-underline hover:prose-a:underline
                     prose-code:text-xs prose-code:bg-slate-100 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:font-mono prose-code:before:content-none prose-code:after:content-none
@@ -152,8 +157,8 @@ export function JottingsCard({ initialNotes }: JottingsCardProps = {}) {
         )}
 
         {/* Add note input */}
-        <div className="flex items-center gap-2 pt-2 border-t border-slate-100">
-          <Clock className="w-4 h-4 text-slate-300 flex-shrink-0" />
+        <div className="flex items-center gap-2 border-t border-[var(--farm-line)]/70 pt-3">
+          <Clock className="h-4 w-4 flex-shrink-0 text-[var(--farm-muted)]" />
           <Input
             placeholder="记一笔杂记..."
             value={noteText}
@@ -165,14 +170,14 @@ export function JottingsCard({ initialNotes }: JottingsCardProps = {}) {
               }
             }}
             disabled={acting}
-            className="h-9 text-sm border-slate-200 focus-visible:ring-emerald-500"
+            className="farm-input h-9 text-sm"
           />
           <Button
             size="icon"
             variant="ghost"
             onClick={handleAddNote}
             disabled={acting || !noteText.trim()}
-            className="h-8 w-8 flex-shrink-0 text-slate-400 hover:text-emerald-600"
+            className="h-8 w-8 flex-shrink-0 text-[var(--farm-muted)] hover:bg-[var(--farm-green-soft)] hover:text-[var(--farm-green)]"
           >
             <Check className="w-4 h-4" />
           </Button>

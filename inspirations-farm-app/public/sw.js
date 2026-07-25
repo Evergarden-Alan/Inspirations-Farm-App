@@ -1,4 +1,4 @@
-const CACHE_NAME = "inspirations-farm-v1";
+const CACHE_NAME = "inspirations-farm-v2";
 
 // Assets to pre-cache on install
 const PRECACHE = ["/", "/manifest.webmanifest"];
@@ -26,6 +26,25 @@ self.addEventListener("fetch", (event) => {
 
   // Never cache API calls — always go network
   if (url.pathname.startsWith("/api/")) {
+    return;
+  }
+
+  // HTML must be network-first so a deployment cannot be pinned to an old
+  // page that references stale Next.js chunks.
+  if (event.request.mode === "navigate") {
+    event.respondWith(
+      fetch(event.request)
+        .then((response) => {
+          if (response && response.status === 200) {
+            const clone = response.clone();
+            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone));
+          }
+          return response;
+        })
+        .catch(async () => {
+          return (await caches.match(event.request)) || new Response("Offline", { status: 503 });
+        })
+    );
     return;
   }
 

@@ -16,15 +16,13 @@ const geistMono = Geist_Mono({
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
-  maximumScale: 1,
-  userScalable: false,
   viewportFit: "cover",
-  themeColor: "#059669",
+  themeColor: "#f2efe4",
 };
 
 export const metadata: Metadata = {
-  title: "Inspirations Farm",
-  description: "Personal inspiration management system",
+  title: "灵感农场 · Inspirations Farm",
+  description: "把灵感种下，把今天过好。",
   applicationName: "Inspirations Farm",
   manifest: "/manifest.webmanifest",
   appleWebApp: {
@@ -48,7 +46,7 @@ export default function RootLayout({
       lang="zh-CN"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
-      <body className="min-h-full flex flex-col">
+      <body className="flex min-h-full flex-col">
         <ErrorBoundary>
           {children}
         </ErrorBoundary>

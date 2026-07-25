@@ -43,6 +43,8 @@ export function ToastContainer() {
   const timersRef = useRef<Set<ReturnType<typeof setTimeout>>>(new Set());
 
   useEffect(() => {
+    const timers = timersRef.current;
+
     function onShow(e: Event) {
       const item = (e as CustomEvent<ToastItem>).detail;
       setItems((prev) => [...prev, item]);
@@ -50,17 +52,17 @@ export function ToastContainer() {
       // Auto-dismiss after 3.5s
       const timerId = setTimeout(() => {
         setItems((prev) => prev.filter((t) => t.id !== item.id));
-        timersRef.current.delete(timerId);
+        timers.delete(timerId);
       }, 3500);
-      timersRef.current.add(timerId);
+      timers.add(timerId);
     }
 
     window.addEventListener("toast:show", onShow);
     return () => {
       window.removeEventListener("toast:show", onShow);
       // Clean up all pending timers on unmount to prevent memory leak
-      timersRef.current.forEach(clearTimeout);
-      timersRef.current.clear();
+      timers.forEach(clearTimeout);
+      timers.clear();
     };
   }, []);
 
@@ -70,7 +72,7 @@ export function ToastContainer() {
 
   return (
     <div
-      className="fixed top-16 right-4 z-[60] flex flex-col gap-2 pointer-events-none"
+      className="pointer-events-none fixed right-4 top-20 z-[60] flex flex-col gap-2"
       aria-live="polite"
       aria-atomic="false"
     >
@@ -84,16 +86,16 @@ export function ToastContainer() {
             transition={{ duration: 0.2, ease: "easeOut" }}
             className={`pointer-events-auto flex items-start gap-2.5 px-3 py-2.5 rounded-xl shadow-lg text-sm max-w-[280px] min-w-[200px] border ${
               item.type === "success"
-                ? "bg-emerald-50 border-emerald-200 text-emerald-800"
+                ? "bg-[#f2f7ef] border-[#bed0c1] text-[var(--farm-green)]"
                 : item.type === "error"
                   ? "bg-red-50 border-red-200 text-red-800"
-                  : "bg-slate-50 border-slate-200 text-slate-700"
+                  : "bg-[var(--farm-paper)] border-[var(--farm-line)] text-[var(--farm-ink)]"
             }`}
           >
             {/* Icon */}
             <span className="shrink-0 mt-0.5">
               {item.type === "success" ? (
-                <CheckCircle2 className="w-4 h-4 text-emerald-500" />
+                <CheckCircle2 className="h-4 w-4 text-[var(--farm-green)]" />
               ) : item.type === "error" ? (
                 <XCircle className="w-4 h-4 text-red-500" />
               ) : (

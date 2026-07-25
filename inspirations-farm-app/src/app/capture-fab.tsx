@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Pen, X } from "lucide-react";
+import { Sprout, X } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
@@ -96,10 +96,10 @@ export function CaptureFab() {
             transition={{ type: "spring", stiffness: 300, damping: 22 }}
             onClick={() => setOpen(true)}
             aria-label="添加灵感"
-            className="fixed right-5 z-40 w-14 h-14 rounded-full bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 text-white shadow-lg flex items-center justify-center lg:hidden touch-manipulation"
-            style={{ bottom: "calc(1.75rem + env(safe-area-inset-bottom))" }}
+            className="farm-primary-button fixed right-5 z-40 flex h-14 w-14 touch-manipulation items-center justify-center rounded-[1.15rem_1.15rem_0.45rem_1.15rem] text-white lg:hidden"
+            style={{ bottom: "calc(6.25rem + env(safe-area-inset-bottom))" }}
           >
-            <Pen className="w-5 h-5" />
+            <Sprout className="h-5 w-5" strokeWidth={1.9} />
           </motion.button>
         )}
       </AnimatePresence>
@@ -115,7 +115,7 @@ export function CaptureFab() {
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               transition={{ duration: 0.2 }}
-              className="fixed inset-0 z-40 bg-black/30 lg:hidden"
+              className="fixed inset-0 z-40 bg-[var(--farm-ink)]/35 backdrop-blur-[2px] lg:hidden"
               onClick={() => setOpen(false)}
             />
 
@@ -126,24 +126,25 @@ export function CaptureFab() {
               animate={{ y: 0 }}
               exit={{ y: "100%" }}
               transition={{ type: "spring", stiffness: 320, damping: 30 }}
-              className="fixed inset-x-0 bottom-0 z-50 bg-white rounded-t-2xl shadow-xl lg:hidden"
+              className="fixed inset-x-0 bottom-0 z-50 rounded-t-[2rem] border-t border-[var(--farm-line)] bg-[var(--farm-paper)] shadow-2xl lg:hidden"
               style={{ paddingBottom: "env(safe-area-inset-bottom)" }}
             >
               {/* Drag handle */}
               <div className="flex justify-center pt-3 pb-1">
-                <div className="w-10 h-1 rounded-full bg-slate-200" />
+                <div className="h-1 w-10 rounded-full bg-[var(--farm-line)]" />
               </div>
 
               <div className="px-4 pb-5 space-y-3">
                 {/* Header row */}
                 <div className="flex items-center justify-between">
-                  <h3 className="text-sm font-semibold text-slate-700">
-                    🌱 种下灵感
-                  </h3>
+                  <div>
+                    <p className="farm-kicker mb-0.5">QUICK CAPTURE</p>
+                    <h3 className="farm-display text-xl font-semibold text-[var(--farm-ink)]">种下灵感</h3>
+                  </div>
                   <button
                     onClick={() => setOpen(false)}
                     aria-label="关闭"
-                    className="w-8 h-8 flex items-center justify-center rounded-lg text-slate-400 hover:bg-slate-100 transition-colors touch-manipulation"
+                    className="flex h-9 w-9 touch-manipulation items-center justify-center rounded-xl text-[var(--farm-muted)] transition-colors hover:bg-[var(--farm-paper-deep)]"
                   >
                     <X className="w-4 h-4" />
                   </button>
@@ -158,12 +159,12 @@ export function CaptureFab() {
                   onChange={(e) => setContent(e.target.value)}
                   onKeyDown={handleKeyDown}
                   disabled={submitting}
-                  className="resize-none bg-slate-50 border-slate-200 focus-visible:ring-emerald-500 text-base min-h-[80px]"
+                  className="farm-input min-h-[96px] resize-none rounded-2xl text-base leading-relaxed"
                 />
 
                 {/* Priority selector */}
                 <div className="flex items-center gap-1.5">
-                  <span className="text-xs text-slate-400 shrink-0">优先级</span>
+                  <span className="shrink-0 text-[10px] font-semibold tracking-[0.12em] text-[var(--farm-muted)]">优先级</span>
                   {(["p0", "p1", "p2", "p3"] as const).map((p) => {
                     const active = priority === p;
                     const color =
@@ -184,7 +185,7 @@ export function CaptureFab() {
                         className={`px-2.5 py-1 text-xs rounded border transition-colors min-h-[36px] touch-manipulation ${
                           active
                             ? `${color} font-medium`
-                            : "border-transparent text-slate-400 hover:bg-slate-100"
+                            : "border-transparent text-[var(--farm-muted)] hover:bg-[var(--farm-paper-deep)]"
                         }`}
                       >
                         {p.toUpperCase()}
@@ -199,7 +200,7 @@ export function CaptureFab() {
                   value={tags}
                   onChange={(e) => setTags(e.target.value)}
                   disabled={submitting}
-                  className="h-10 text-sm border-slate-200 focus-visible:ring-emerald-500"
+                  className="farm-input h-10 text-sm"
                 />
 
                 {/* Error */}
@@ -220,9 +221,10 @@ export function CaptureFab() {
                 <Button
                   onClick={handleSubmit}
                   disabled={submitting || !content.trim()}
-                  className="w-full h-12 bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium"
+                  className="farm-primary-button h-12 w-full text-sm font-medium"
                 >
-                  {submitting ? "种下中..." : "种下灵感 🌱"}
+                  {!submitting && <Sprout className="size-4" />}
+                  {submitting ? "种下中..." : "种下灵感"}
                 </Button>
               </div>
             </motion.div>
