@@ -341,6 +341,7 @@ export function DailyDashboard({ initialDaily }: DailyDashboardProps = {}) {
                     <button
                       onClick={() => handleToggle(i)}
                       disabled={acting}
+                      aria-label={task.done ? `标记「${task.displayText}」为未完成` : `标记「${task.displayText}」为已完成`}
                       className="w-full flex items-center gap-3 py-3 px-3 min-h-[3.5rem] rounded-lg hover:bg-slate-50 active:bg-slate-100 transition-colors text-left disabled:opacity-50 touch-manipulation"
                     >
                       <motion.div
@@ -401,17 +402,19 @@ export function DailyDashboard({ initialDaily }: DailyDashboardProps = {}) {
 
                       {/* Add sub-task button — mobile always visible, desktop hover */}
                       {task.indentLevel < 4 && (
-                        <span
+                        <button
+                          type="button"
                           onClick={(e) => {
                             e.stopPropagation();
                             setAddSubFor(task.id);
                             setSubText("");
                           }}
+                          aria-label={`为「${task.displayText}」添加子任务`}
                           className="ml-auto opacity-40 md:opacity-0 md:group-hover/task:opacity-100 active:opacity-100 transition-opacity p-2 rounded-md text-slate-400 hover:text-emerald-500 hover:bg-emerald-50 touch-manipulation"
                           title="添加子任务"
                         >
                           <CornerDownRight className="w-4 h-4" />
-                        </span>
+                        </button>
                       )}
                     </button>
 
@@ -481,6 +484,7 @@ export function DailyDashboard({ initialDaily }: DailyDashboardProps = {}) {
           <Button
             onClick={handleAddTask}
             disabled={acting || !newTask.trim()}
+            aria-label="添加新任务"
             className="min-w-[44px] min-h-[44px] h-11 w-11 p-0 flex-shrink-0 bg-emerald-600 hover:bg-emerald-700 text-white"
           >
             {acting ? <Loader2 className="w-5 h-5 animate-spin" /> : <Plus className="w-5 h-5" />}
