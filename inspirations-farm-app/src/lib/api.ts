@@ -32,22 +32,49 @@ export async function apiFetch(
   url: string,
   options: RequestInit = {}
 ): Promise<Response> {
-  const res = await fetch(url, {
-    ...options,
-    headers: {
-      "Content-Type": "application/json",
-      "x-app-pin": getPin() ?? "",
-      ...options.headers,
-    },
-  });
+  // Retry on network errors (not on HTTP errors like 4xx/5xx).
+  // Useful for transient network issues, especially on mobile.
+  const maxRetries = 2;
+  let lastError: Error | null = null;
 
-  if (res.status === 401) {
-    clearPin();
-    if (typeof window !== "undefined") {
-      window.dispatchEvent(new CustomEvent("auth:expired"));
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      const res = await fetch(url, {
+        ...options,
+        headers: {
+          "Content-Type": "application/json",
+          "x-app-pin": getPin() ?? "",
+          ...options.headers,
+        },
+      });
+
+      if (res.status === 401) {
+        clearPin();
+        if (typeof window !== "undefined") {
+          window.dispatchEvent(new CustomEvent("auth:expired"));
+        }
+        throw new AuthError();
+      }
+
+      return res;
+    } catch (err) {
+      // If AuthError, rethrow immediately (don't retry auth failures)
+      if (err instanceof AuthError) {
+        throw err;
+      }
+
+      lastError = err instanceof Error ? err : new Error("Network error");
+
+      // If this was the last attempt, throw
+      if (attempt === maxRetries) {
+        break;
+      }
+
+      // Exponential backoff: 200ms, 400ms
+      const delay = 200 * Math.pow(2, attempt);
+      await new Promise((resolve) => setTimeout(resolve, delay));
     }
-    throw new AuthError();
   }
 
-  return res;
+  throw lastError;
 }
