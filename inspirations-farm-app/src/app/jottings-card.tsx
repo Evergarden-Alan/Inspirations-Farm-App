@@ -2,16 +2,12 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { Clock, Check, NotebookPen } from "lucide-react";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
-import remarkMath from "remark-math";
-import rehypeKatex from "rehype-katex";
-import rehypeSanitize from "rehype-sanitize";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { apiFetch, AuthError } from "@/lib/api";
 import { getBeijingDateString } from "@/lib/beijing-time";
+import { MarkdownRenderer } from "@/components/markdown-renderer";
 
 interface DailyNote {
   time: string;
@@ -140,15 +136,7 @@ export function JottingsCard({ initialNotes }: JottingsCardProps = {}) {
                     prose-strong:text-slate-700 prose-strong:font-semibold
                     prose-ul:my-0.5 prose-ol:my-0.5 prose-li:my-0.5 prose-li:text-sm
                   ">
-                    <ReactMarkdown
-                      remarkPlugins={[remarkGfm, remarkMath]}
-                      rehypePlugins={[
-                        [rehypeKatex, { strict: false, throwOnError: false, output: "html" }],
-                        rehypeSanitize
-                      ]}
-                    >
-                      {n.text}
-                    </ReactMarkdown>
+                    <MarkdownRenderer content={n.text} />
                   </div>
                 </div>
               ))}

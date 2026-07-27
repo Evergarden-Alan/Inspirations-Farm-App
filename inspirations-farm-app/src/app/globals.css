@@ -4,6 +4,10 @@
 @import "shadcn/tailwind.css";
 @import "katex/dist/katex.min.css";
 
+/* Code highlighting themes */
+@import "highlight.js/styles/github.css" layer(highlight-light);
+@import "highlight.js/styles/github-dark.css" layer(highlight-dark);
+
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
@@ -345,3 +349,68 @@
   .farm-app::before { display: none; }
   .farm-date-chip { gap: 0.45rem; padding: 0.5rem 0.7rem; }
 }
+
+/* ═══════════════════════════════════════════════════════════
+   Code Highlighting & Mermaid Styles
+   ═══════════════════════════════════════════════════════════ */
+
+/* Light mode - use github theme */
+@layer highlight-light {
+  :root:not(.dark) .hljs {
+    background: var(--farm-paper) !important;
+    color: var(--farm-ink) !important;
+  }
+}
+
+/* Dark mode - use github-dark theme */
+@layer highlight-dark {
+  :root.dark .hljs {
+    background: rgb(13 17 23) !important;
+    color: rgb(230 237 243) !important;
+  }
+}
+
+/* Code block container */
+.prose pre {
+  @apply rounded-lg border border-[var(--farm-line)] bg-[var(--farm-paper)] p-3 overflow-x-auto my-2;
+  font-size: 0.75rem;
+  line-height: 1.5;
+}
+
+.prose pre code {
+  @apply font-mono text-xs bg-transparent p-0;
+  color: inherit;
+}
+
+/* Inline code */
+.prose :not(pre) > code {
+  @apply bg-slate-100 dark:bg-slate-800 px-1.5 py-0.5 rounded font-mono;
+  font-size: 0.6875rem;
+  color: var(--farm-ink);
+}
+
+.dark .prose :not(pre) > code {
+  @apply bg-slate-800 text-slate-200;
+}
+
+/* Mermaid diagram container */
+.mermaid-diagram {
+  @apply bg-white dark:bg-slate-900 rounded-lg border border-[var(--farm-line)] p-4 my-3 overflow-x-auto;
+}
+
+.mermaid-diagram svg {
+  @apply max-w-full h-auto mx-auto;
+}
+
+/* Mermaid specific adjustments for farm theme */
+.mermaid-diagram .node rect,
+.mermaid-diagram .node circle,
+.mermaid-diagram .node polygon {
+  stroke: var(--farm-green) !important;
+  stroke-width: 2px !important;
+}
+
+.mermaid-diagram .edgePath .path {
+  stroke: var(--farm-muted) !important;
+}
+

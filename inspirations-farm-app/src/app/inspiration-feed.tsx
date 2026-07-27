@@ -4,11 +4,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Check, Trash2, Send, MessageSquarePlus, Loader2, ChevronDown, ChevronUp, Undo2, MoreHorizontal, Sprout } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
-import ReactMarkdown from "react-markdown";
-import remarkGfm from "remark-gfm";
-import remarkMath from "remark-math";
-import rehypeKatex from "rehype-katex";
-import rehypeSanitize from "rehype-sanitize";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -17,6 +12,7 @@ import { getSurvivalLabel, getSurvivalColor } from "@/lib/time";
 import { apiFetch, AuthError } from "@/lib/api";
 import { toast } from "@/app/toast";
 import { getBeijingDateString } from "@/lib/beijing-time";
+import { MarkdownRenderer } from "@/components/markdown-renderer";
 
 // ── Shared prose class string ──────────────────────────────
 const PROSE_CN =
@@ -750,15 +746,7 @@ function InspirationCard({
         {item.content && (
           <div>
             <div className={`${PROSE_CN} ${expanded ? "" : "line-clamp-2"}`}>
-              <ReactMarkdown
-                remarkPlugins={[remarkGfm, remarkMath]}
-                rehypePlugins={[
-                  [rehypeKatex, { strict: false, throwOnError: false, output: "html" }],
-                  rehypeSanitize
-                ]}
-              >
-                {item.content}
-              </ReactMarkdown>
+              <MarkdownRenderer content={item.content} />
             </div>
             {/* Only show toggle if content is likely clipped */}
             {item.content.length > 80 && (
@@ -821,15 +809,7 @@ function InspirationCard({
                         {patch.time}
                       </span>
                       <div className={PATCH_PROSE_CN}>
-                        <ReactMarkdown
-                          remarkPlugins={[remarkGfm, remarkMath]}
-                          rehypePlugins={[
-                            [rehypeKatex, { strict: false, throwOnError: false, output: "html" }],
-                            rehypeSanitize
-                          ]}
-                        >
-                          {patch.content}
-                        </ReactMarkdown>
+                        <MarkdownRenderer content={patch.content} />
                       </div>
                     </div>
                   ))}
