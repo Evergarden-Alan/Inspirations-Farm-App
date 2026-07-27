@@ -7,6 +7,7 @@
 
 import { Component, ReactNode } from "react";
 import { AlertTriangle } from "lucide-react";
+import { captureError } from "@/lib/sentry";
 
 interface ErrorBoundaryProps {
   children: ReactNode;
@@ -30,6 +31,11 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
 
   componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
     console.error("[ErrorBoundary] Caught error:", error, errorInfo);
+    // 上报到 Sentry（如果已配置）
+    captureError(error, {
+      componentStack: errorInfo.componentStack,
+      errorBoundary: true,
+    });
   }
 
   retry = () => {

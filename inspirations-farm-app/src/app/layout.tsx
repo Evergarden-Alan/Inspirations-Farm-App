@@ -17,7 +17,6 @@ export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   viewportFit: "cover",
-  themeColor: "#f2efe4",
 };
 
 export const metadata: Metadata = {
@@ -46,6 +45,9 @@ export default function RootLayout({
       lang="zh-CN"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
+      <head>
+        <meta name="theme-color" content="#f2efe4" />
+      </head>
       <body className="flex min-h-full flex-col">
         <ErrorBoundary>
           {children}

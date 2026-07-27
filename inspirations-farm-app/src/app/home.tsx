@@ -5,6 +5,7 @@ import { CalendarDays, Sprout } from "lucide-react";
 import { LockScreen } from "./lock-screen";
 import { CaptureFab } from "./capture-fab";
 import { ToastContainer } from "./toast";
+import { ThemeToggle } from "./theme-toggle";
 import { hasPin } from "@/lib/api";
 import { getBeijingDateString } from "@/lib/beijing-time";
 
@@ -76,6 +77,8 @@ export function Home({ children }: { children: React.ReactNode }) {
               </span>
             </div>
           </div>
+
+          <ThemeToggle />
         </div>
       </header>
 

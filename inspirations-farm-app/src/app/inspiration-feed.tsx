@@ -72,6 +72,7 @@ export function InspirationFeed({ initialItems }: InspirationFeedProps = {}) {
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [filterPriority, setFilterPriority] = useState("all");
   const [filterTag, setFilterTag] = useState("all");
+  const [searchQuery, setSearchQuery] = useState("");
   const [newPriority, setNewPriority] = useState("p2");
   const [newTags, setNewTags] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -375,8 +376,23 @@ export function InspirationFeed({ initialItems }: InspirationFeedProps = {}) {
     if (filterTag !== "all") {
       result = result.filter((i) => i.tags?.includes(filterTag));
     }
+    // 搜索过滤
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      result = result.filter((i) => {
+        // 标题匹配
+        if (i.title.toLowerCase().includes(q)) return true;
+        // 内容匹配
+        if (i.content.toLowerCase().includes(q)) return true;
+        // 标签匹配
+        if (i.tags.some((tag) => tag.toLowerCase().includes(q))) return true;
+        // 追加记录匹配
+        if (i.patches?.some((p) => p.content.toLowerCase().includes(q))) return true;
+        return false;
+      });
+    }
     return result;
-  }, [items, filterPriority, filterTag]);
+  }, [items, filterPriority, filterTag, searchQuery]);
 
   // ── Error auto-dismiss (4s) ──────────────────────────
   useEffect(() => {
@@ -499,6 +515,30 @@ export function InspirationFeed({ initialItems }: InspirationFeedProps = {}) {
         <p className="rounded-xl bg-red-50 px-3 py-2 text-sm text-red-600">
           {error}
         </p>
+      )}
+
+      {/* Search Bar */}
+      {items.length > 0 && (
+        <div className="relative">
+          <Input
+            type="search"
+            placeholder="搜索标题、内容、标签..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="farm-input h-11 pl-4 pr-10 text-sm"
+          />
+          {searchQuery && (
+            <button
+              onClick={() => setSearchQuery("")}
+              className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--farm-muted)] hover:text-[var(--farm-ink)] transition-colors"
+              aria-label="清空搜索"
+            >
+              <svg className="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          )}
+        </div>
       )}
 
       {/* Filter Bar */}

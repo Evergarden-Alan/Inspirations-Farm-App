@@ -4,6 +4,8 @@
  * - Throws AuthError on 401 so the UI can show the lock screen.
  */
 
+import { captureError } from "./sentry";
+
 export class AuthError extends Error {
   constructor() {
     super("Unauthorized");
@@ -64,6 +66,13 @@ export async function apiFetch(
       }
 
       lastError = err instanceof Error ? err : new Error("Network error");
+
+      // 上报到 Sentry（非 AuthError）
+      captureError(lastError, {
+        url,
+        attempt,
+        maxRetries,
+      });
 
       // If this was the last attempt, throw
       if (attempt === maxRetries) {

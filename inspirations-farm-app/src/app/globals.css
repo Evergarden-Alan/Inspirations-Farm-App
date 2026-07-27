@@ -127,6 +127,17 @@
   --sidebar-accent-foreground: oklch(0.985 0 0);
   --sidebar-border: oklch(1 0 0 / 10%);
   --sidebar-ring: oklch(0.556 0 0);
+
+  /* Farm 自定义变量暗色适配 */
+  --farm-canvas: #1a1f1c;
+  --farm-paper: #242a27;
+  --farm-paper-deep: #1f2522;
+  --farm-ink: #e8ebe9;
+  --farm-muted: #9ca49e;
+  --farm-green: #6b9a76;
+  --farm-green-soft: rgba(107, 154, 118, 0.15);
+  --farm-clay: #d4856f;
+  --farm-line: rgba(255, 255, 255, 0.1);
 }
 
 @layer base {
