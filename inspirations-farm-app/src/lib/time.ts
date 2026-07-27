@@ -18,6 +18,10 @@ export function parseBeijingTime(raw: string): Date {
   // Normalize: replace first space with "T", strip extra dashes in time part,
   // then append +08:00 timezone offset.
   let s = raw.trim();
+
+  // Guard: return epoch if empty/invalid to avoid NaN in time calculations
+  if (!s) return new Date(0);
+
   // "2026-06-19 12:20:18" → "2026-06-19T12:20:18"
   // "2026-06-19-122018"  → "2026-06-19T12:20:18"
   if (s.length === 19 && s[10] === " ") {
@@ -34,7 +38,10 @@ export function parseBeijingTime(raw: string): Date {
   }
 
   // Force Beijing timezone
-  return new Date(s + "+08:00");
+  const date = new Date(s + "+08:00");
+
+  // Fallback to epoch if parsing failed
+  return isNaN(date.getTime()) ? new Date(0) : date;
 }
 
 /**

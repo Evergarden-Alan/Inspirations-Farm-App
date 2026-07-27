@@ -87,7 +87,7 @@ export function setFrontmatterField(
 
 /** Parse YAML frontmatter and body from a markdown string */
 export function parseMarkdown(text: string): ParsedMarkdown {
-  const { data, content } = matter(text);
+  const { data, content } = matter(text, MATTER_OPTS);
   return { frontmatter: data as Record<string, string | string[]>, body: content.trim() };
 }
 

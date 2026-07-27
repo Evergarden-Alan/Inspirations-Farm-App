@@ -191,7 +191,8 @@ export async function listInspirationsWithContent(): Promise<
         // string scan. A raw regex scan would let malicious content in the body
         // inject a fake "create: <timestamp>" line to manipulate sort order.
         // gray-matter's date coercion is prevented by JSON_SCHEMA in parseFrontmatter.
-        const createdAt = String(frontmatter.create ?? "");
+        // Fallback to filename timestamp if frontmatter.create is missing (legacy data).
+        const createdAt = String(frontmatter.create ?? "") || f.name.replace(/\.md$/, "");
 
         // Parse content and patches, splitting at ## 追加记录
         const stripped = stripHeading(body);
