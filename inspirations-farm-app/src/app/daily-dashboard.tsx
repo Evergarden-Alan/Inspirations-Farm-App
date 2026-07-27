@@ -51,6 +51,7 @@ export function DailyDashboard({ initialDaily }: DailyDashboardProps = {}) {
   const [loading, setLoading] = useState(!initialDaily);
   const [acting, setActing] = useState(false);
   const [newTask, setNewTask] = useState("");
+  const [taskPriority, setTaskPriority] = useState("p2"); // Task priority state
   const [error, setError] = useState<string | null>(null);
   const [addSubFor, setAddSubFor] = useState<number | null>(null);
   const [subText, setSubText] = useState("");
@@ -261,14 +262,18 @@ export function DailyDashboard({ initialDaily }: DailyDashboardProps = {}) {
       await withClientRetry(async (freshState) => {
         // Check if task already exists (avoid duplicates on retry)
         const freshTasks = freshState.tasks;
-        const alreadyExists = freshTasks.some((t) => t.text === text);
+        const alreadyExists = freshTasks.some((t) => t.text === text || t.text === `${text} #${taskPriority}`);
         if (alreadyExists) {
           // Task already added, treat as success
           setNewTask("");
+          setTaskPriority("p2");
           return;
         }
 
-        const updatedContent = insertIntoDailySection(freshState.content, `- [ ] ${text}`);
+        // Construct task line with priority
+        const prioritySuffix = taskPriority !== "p2" ? ` #${taskPriority}` : "";
+        const taskLine = `- [ ] ${text}${prioritySuffix}`;
+        const updatedContent = insertIntoDailySection(freshState.content, taskLine);
 
         const res = await apiFetch("/api/daily", {
           method: "PUT",
@@ -284,6 +289,7 @@ export function DailyDashboard({ initialDaily }: DailyDashboardProps = {}) {
         }
 
         setNewTask("");
+        setTaskPriority("p2"); // Reset to default
         const newTasks = parseTasks(updatedContent);
         setState({
           ...state,
@@ -512,6 +518,20 @@ export function DailyDashboard({ initialDaily }: DailyDashboardProps = {}) {
                             延期
                           </span>
                         )}
+                        {/* Priority badge */}
+                        {task.priority && task.priority !== "p2" && (
+                          <span
+                            className={`ml-1.5 rounded px-1.5 py-0.5 text-[10px] font-medium ${
+                              task.priority === "p0"
+                                ? "bg-red-50 text-red-600"
+                                : task.priority === "p1"
+                                  ? "bg-amber-50 text-amber-600"
+                                  : "bg-slate-50 text-slate-500"
+                            }`}
+                          >
+                            {task.priority.toUpperCase()}
+                          </span>
+                        )}
                       </span>
 
                       {/* Add sub-task button — mobile always visible, desktop hover */}
@@ -586,23 +606,60 @@ export function DailyDashboard({ initialDaily }: DailyDashboardProps = {}) {
         )}
 
         {/* Add top-level task */}
-        <div className="flex items-center gap-3 border-t border-[var(--farm-line)]/70 pt-4">
-          <Input
-            placeholder="添加任务..."
-            value={newTask}
-            onChange={(e) => setNewTask(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); handleAddTask(); } }}
-            disabled={acting}
-            className="farm-input h-11 text-base"
-          />
-          <Button
-            onClick={handleAddTask}
-            disabled={acting || !newTask.trim()}
-            aria-label="添加新任务"
-            className="farm-primary-button h-11 min-h-[44px] w-11 min-w-[44px] flex-shrink-0 p-0"
-          >
-            {acting ? <Loader2 className="w-5 h-5 animate-spin" /> : <Plus className="w-5 h-5" />}
-          </Button>
+        <div className="space-y-3 border-t border-[var(--farm-line)]/70 pt-4">
+          <div className="flex items-center gap-3">
+            <Input
+              placeholder="添加任务..."
+              value={newTask}
+              onChange={(e) => setNewTask(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); handleAddTask(); } }}
+              disabled={acting}
+              className="farm-input h-11 text-base"
+            />
+            <Button
+              onClick={handleAddTask}
+              disabled={acting || !newTask.trim()}
+              aria-label="添加新任务"
+              className="farm-primary-button h-11 min-h-[44px] w-11 min-w-[44px] flex-shrink-0 p-0"
+            >
+              {acting ? <Loader2 className="w-5 h-5 animate-spin" /> : <Plus className="w-5 h-5" />}
+            </Button>
+          </div>
+
+          {/* Priority selector */}
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-[var(--farm-muted)]">优先级:</span>
+            <div className="flex gap-1.5">
+              {["p0", "p1", "p2", "p3"].map((p) => {
+                const active = taskPriority === p;
+                const color =
+                  p === "p0"
+                    ? "bg-red-50 text-red-600 border-red-300"
+                    : p === "p1"
+                      ? "bg-amber-50 text-amber-600 border-amber-300"
+                      : p === "p2"
+                        ? "bg-blue-50 text-blue-600 border-blue-300"
+                        : "bg-slate-50 text-slate-500 border-slate-300";
+
+                return (
+                  <button
+                    key={p}
+                    type="button"
+                    onClick={() => setTaskPriority(p)}
+                    disabled={acting}
+                    aria-pressed={active}
+                    className={`px-2.5 py-1 text-xs rounded border transition-colors min-h-[32px] touch-manipulation ${
+                      active
+                        ? `${color} font-medium`
+                        : "border-transparent text-[var(--farm-muted)] hover:bg-[var(--farm-paper-deep)]"
+                    }`}
+                  >
+                    {p.toUpperCase()}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
         </div>
       </CardContent>
     </Card>

@@ -55,6 +55,7 @@ export interface DailyTask {
   indentLevel: number;
   indent: string;
   lineNumber: number;
+  priority: string; // p0 | p1 | p2 | p3, default "p2"
 }
 
 export interface DailyNote {
@@ -204,7 +205,15 @@ export function parseTasks(markdown: string): DailyTask[] {
     const match = line.match(/^(\s*)[-+*]\s*\[([ xX>])\]\s+(.*)$/);
     if (match) {
       const { level, raw } = calcIndent(match[1]);
-      const rawText = match[3].trim();
+      let rawText = match[3].trim();
+
+      // Extract priority tag (#p0, #p1, #p2, #p3) from end of line
+      let priority = "p2"; // default
+      const priorityMatch = rawText.match(/\s+#(p[0-3])$/);
+      if (priorityMatch) {
+        priority = priorityMatch[1];
+        rawText = rawText.slice(0, priorityMatch.index).trim();
+      }
 
       // Parse [[timestamp|alias]] double-bracket link
       const linkMatch = rawText.match(LINK_RE);
@@ -217,16 +226,17 @@ export function parseTasks(markdown: string): DailyTask[] {
         id: id++,
         parentId: null,
         done: match[2].toLowerCase() === "x",
-        text: rawText,
+        text: match[3].trim(), // Keep original text with priority tag
         displayText,
         sourceIdeaId,
         indentLevel: level,
         indent: raw,
         lineNumber: lineNum,
+        priority,
       });
     }
   }
-  return computeParents(tasks);
+  return inheritPriority(computeParents(tasks));
 }
 
 /** Assign parentId to each task based on indentLevel */
@@ -239,6 +249,26 @@ export function computeParents(tasks: DailyTask[]): DailyTask[] {
     task.parentId = stack.length > 0 ? stack[stack.length - 1].id : null;
     stack.push({ id: task.id, level: task.indentLevel });
   }
+  return tasks;
+}
+
+/**
+ * Subtasks inherit parent priority if they don't explicitly specify one.
+ * A subtask has explicit priority if its text ends with #p[0-3].
+ */
+function inheritPriority(tasks: DailyTask[]): DailyTask[] {
+  const taskMap = new Map(tasks.map(t => [t.id, t]));
+
+  for (const task of tasks) {
+    if (task.parentId !== null) {
+      const parent = taskMap.get(task.parentId);
+      // Inherit if subtask has default p2 and no explicit #p tag in text
+      if (parent && task.priority === "p2" && !task.text.match(/#p[0-3]$/)) {
+        task.priority = parent.priority;
+      }
+    }
+  }
+
   return tasks;
 }
 
