@@ -56,6 +56,63 @@ export function DailyDashboard({ initialDaily }: DailyDashboardProps = {}) {
   const [subText, setSubText] = useState("");
   const date = getBeijingDateString();
 
+  // ── Conflict Retry Helpers ──────────────────────────
+
+  /** Check if error is a 409 conflict */
+  function isConflictError(err: unknown): boolean {
+    if (err && typeof err === "object" && "status" in err) {
+      return (err as { status: number }).status === 409;
+    }
+    return false;
+  }
+
+  /** Refetch latest daily content for retry */
+  async function refetchDaily(): Promise<{ content: string; sha: string; tasks: DailyTask[] }> {
+    const res = await apiFetch(`/api/daily?date=${date}`);
+    const data = await res.json();
+
+    if (!data.ok || !data.exists) {
+      throw new Error("Failed to fetch latest daily");
+    }
+
+    return {
+      content: data.content,
+      sha: data.sha,
+      tasks: data.tasks ?? [],
+    };
+  }
+
+  /** Retry wrapper for client-side operations that may conflict */
+  async function withClientRetry<T>(
+    operation: (freshState: { content: string; sha: string; tasks: DailyTask[] }) => Promise<T>,
+    maxRetries = 2
+  ): Promise<T> {
+    let lastError: unknown;
+
+    for (let attempt = 0; attempt < maxRetries; attempt++) {
+      try {
+        // First attempt uses current state, retries refetch
+        const freshState =
+          attempt === 0
+            ? { content: state!.content!, sha: state!.sha!, tasks: state!.tasks! }
+            : await refetchDaily();
+
+        return await operation(freshState);
+      } catch (err) {
+        lastError = err;
+
+        // Retry on 409 if attempts remain
+        if (isConflictError(err) && attempt < maxRetries - 1) {
+          continue;
+        }
+
+        throw err;
+      }
+    }
+
+    throw lastError;
+  }
+
   // ── Fetch ───────────────────────────────────────────
   const fetchJournal = useCallback(async () => {
     try {
@@ -121,37 +178,52 @@ export function DailyDashboard({ initialDaily }: DailyDashboardProps = {}) {
   async function handleToggle(index: number) {
     if (!state?.content || !state.sha || !state.path || !state.tasks) return;
 
+    const originalTask = state.tasks[index];
     const oldTasks = state.tasks;
-    const toggledTask = oldTasks[index];
-
-    // Operate directly on raw content using line numbers
-    const updatedContent = cascadeToggleAtLine(state.content, toggledTask.lineNumber);
-    if (updatedContent === state.content) {
-      setError("Failed to update task in file");
-      return;
-    }
-
-    // Re-parse tasks from the updated content for UI state
-    const newTasks = parseTasks(updatedContent);
 
     setActing(true);
     setError(null);
+
     try {
-      const res = await apiFetch("/api/daily", {
-        method: "PUT",
-        body: JSON.stringify({
-          path: state.path,
-          sha: state.sha,
-          content: updatedContent,
-        }),
-      });
-      const data = await res.json();
-      if (data.ok) {
+      await withClientRetry(async (freshState) => {
+        // Re-locate the task (line number may have changed)
+        const freshTasks = freshState.tasks;
+        const taskToToggle =
+          freshTasks.find((t) => t.text === originalTask.text && t.indent === originalTask.indent) ||
+          freshTasks[index]; // fallback to same index
+
+        // Perform toggle
+        const updatedContent = cascadeToggleAtLine(freshState.content, taskToToggle.lineNumber);
+        if (updatedContent === freshState.content) {
+          throw new Error("Failed to update task in file");
+        }
+
+        const newTasks = parseTasks(updatedContent);
+
+        // PUT request
+        const res = await apiFetch("/api/daily", {
+          method: "PUT",
+          body: JSON.stringify({
+            path: state.path,
+            sha: freshState.sha,
+            content: updatedContent,
+          }),
+        });
+
+        const data = await res.json();
+
+        if (!data.ok) {
+          const err = new Error(data.error ?? "Failed to update") as Error & { status?: number };
+          err.status = data.status;
+          throw err;
+        }
+
+        // Success - update state
         setState({ ...state, content: updatedContent, sha: data.sha, tasks: newTasks });
 
         // Archive linked inspirations that became completed
         for (let i = 0; i < newTasks.length; i++) {
-          const oldDone = oldTasks[i].done;
+          const oldDone = oldTasks[i]?.done;
           const newDone = newTasks[i].done;
           if (!oldDone && newDone && newTasks[i].sourceIdeaId) {
             apiFetch("/api/github", {
@@ -167,11 +239,11 @@ export function DailyDashboard({ initialDaily }: DailyDashboardProps = {}) {
               .catch(() => {});
           }
         }
-      } else {
-        setError(data.error ?? "Failed to update");
-      }
+      }, 2);
     } catch (err) {
-      if (!(err instanceof AuthError)) setError("Network error");
+      if (!(err instanceof AuthError)) {
+        setError(isConflictError(err) ? "操作冲突，请刷新重试" : "Network error");
+      }
     } finally {
       setActing(false);
     }
@@ -182,22 +254,36 @@ export function DailyDashboard({ initialDaily }: DailyDashboardProps = {}) {
     const text = newTask.trim();
     if (!text || !state?.content || !state.sha || !state.path) return;
 
-    const updatedContent = insertIntoDailySection(
-      state.content,
-      `- [ ] ${text}`
-    );
-
     setActing(true);
     setError(null);
+
     try {
-      const res = await apiFetch("/api/daily", {
-        method: "PUT",
-        body: JSON.stringify({ path: state.path, sha: state.sha, content: updatedContent }),
-      });
-      const data = await res.json();
-      if (data.ok) {
+      await withClientRetry(async (freshState) => {
+        // Check if task already exists (avoid duplicates on retry)
+        const freshTasks = freshState.tasks;
+        const alreadyExists = freshTasks.some((t) => t.text === text);
+        if (alreadyExists) {
+          // Task already added, treat as success
+          setNewTask("");
+          return;
+        }
+
+        const updatedContent = insertIntoDailySection(freshState.content, `- [ ] ${text}`);
+
+        const res = await apiFetch("/api/daily", {
+          method: "PUT",
+          body: JSON.stringify({ path: state.path, sha: freshState.sha, content: updatedContent }),
+        });
+
+        const data = await res.json();
+
+        if (!data.ok) {
+          const err = new Error(data.error ?? "Failed to add task") as Error & { status?: number };
+          err.status = data.status;
+          throw err;
+        }
+
         setNewTask("");
-        // Optimistic update: apply locally-computed content + re-parsed tasks
         const newTasks = parseTasks(updatedContent);
         setState({
           ...state,
@@ -205,11 +291,11 @@ export function DailyDashboard({ initialDaily }: DailyDashboardProps = {}) {
           sha: data.sha,
           tasks: newTasks,
         });
-      } else {
-        setError(data.error ?? "Failed to add task");
-      }
+      }, 2);
     } catch (err) {
-      if (!(err instanceof AuthError)) setError("Network error");
+      if (!(err instanceof AuthError)) {
+        setError(isConflictError(err) ? "操作冲突，请刷新重试" : "Network error");
+      }
     } finally {
       setActing(false);
     }
@@ -220,20 +306,34 @@ export function DailyDashboard({ initialDaily }: DailyDashboardProps = {}) {
     const text = subText.trim();
     if (!text || !state?.content || !state.sha || !state.path) return;
 
-    const updatedContent = insertSubtaskLine(state.content, parentTask, text);
-
     setActing(true);
     setError(null);
+
     try {
-      const res = await apiFetch("/api/daily", {
-        method: "PUT",
-        body: JSON.stringify({ path: state.path, sha: state.sha, content: updatedContent }),
-      });
-      const data = await res.json();
-      if (data.ok) {
+      await withClientRetry(async (freshState) => {
+        // Re-locate the parent task (line number may have changed)
+        const freshTasks = freshState.tasks;
+        const freshParent =
+          freshTasks.find((t) => t.text === parentTask.text && t.indent === parentTask.indent) ||
+          parentTask; // fallback
+
+        const updatedContent = insertSubtaskLine(freshState.content, freshParent, text);
+
+        const res = await apiFetch("/api/daily", {
+          method: "PUT",
+          body: JSON.stringify({ path: state.path, sha: freshState.sha, content: updatedContent }),
+        });
+
+        const data = await res.json();
+
+        if (!data.ok) {
+          const err = new Error(data.error ?? "Failed to add subtask") as Error & { status?: number };
+          err.status = data.status;
+          throw err;
+        }
+
         setAddSubFor(null);
         setSubText("");
-        // Optimistic update: apply locally-computed content + re-parsed tasks
         const newTasks = parseTasks(updatedContent);
         setState({
           ...state,
@@ -241,11 +341,11 @@ export function DailyDashboard({ initialDaily }: DailyDashboardProps = {}) {
           sha: data.sha,
           tasks: newTasks,
         });
-      } else {
-        setError(data.error ?? "Failed to add subtask");
-      }
+      }, 2);
     } catch (err) {
-      if (!(err instanceof AuthError)) setError("Network error");
+      if (!(err instanceof AuthError)) {
+        setError(isConflictError(err) ? "操作冲突，请刷新重试" : "Network error");
+      }
     } finally {
       setActing(false);
     }
