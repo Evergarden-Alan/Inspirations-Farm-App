@@ -17,6 +17,7 @@ export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   viewportFit: "cover",
+  themeColor: "#f3f0e6",
 };
 
 export const metadata: Metadata = {
@@ -44,9 +45,15 @@ export default function RootLayout({
     <html
       lang="zh-CN"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      data-theme="auto"
+      suppressHydrationWarning
     >
       <head>
-        <meta name="theme-color" content="#f2efe4" />
+        <script
+          dangerouslySetInnerHTML={{
+            __html: `(function(){try{var t=localStorage.getItem("theme");if(t!=="light"&&t!=="dark"&&t!=="auto")t="auto";var h=(new Date()).getHours();var d=t==="dark"||(t!=="light"&&(h>=18||h<6));document.documentElement.classList.toggle("dark",d);document.documentElement.dataset.theme=t;var m=document.querySelector('meta[name="theme-color"]');if(m)m.setAttribute("content",d?"#101914":"#f3f0e6")}catch(e){}})()`,
+          }}
+        />
       </head>
       <body className="flex min-h-full flex-col">
         <ErrorBoundary>

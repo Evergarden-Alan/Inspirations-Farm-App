@@ -30,23 +30,28 @@ export function hasPin(): boolean {
   return !!getPin();
 }
 
+interface ApiFetchOptions extends RequestInit {
+  retryOnNetworkError?: boolean;
+}
+
 export async function apiFetch(
   url: string,
-  options: RequestInit = {}
+  options: ApiFetchOptions = {}
 ): Promise<Response> {
+  const { retryOnNetworkError = true, ...requestOptions } = options;
   // Retry on network errors (not on HTTP errors like 4xx/5xx).
   // Useful for transient network issues, especially on mobile.
-  const maxRetries = 2;
+  const maxRetries = retryOnNetworkError ? 2 : 0;
   let lastError: Error | null = null;
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
       const res = await fetch(url, {
-        ...options,
+        ...requestOptions,
         headers: {
           "Content-Type": "application/json",
           "x-app-pin": getPin() ?? "",
-          ...options.headers,
+          ...requestOptions.headers,
         },
       });
 

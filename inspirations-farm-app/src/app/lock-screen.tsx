@@ -92,7 +92,7 @@ export function LockScreen({ onUnlock }: Props) {
           />
 
           {error && (
-            <p className="text-sm text-red-500 animate-in fade-in">
+            <p className="farm-alert-error animate-in fade-in px-3 py-2 text-sm" role="alert">
               密钥错误
             </p>
           )}

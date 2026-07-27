@@ -107,7 +107,7 @@ export function JottingsCard({ initialNotes }: JottingsCardProps = {}) {
 
       <CardContent className="space-y-3">
         {error && (
-          <p className="rounded-xl bg-red-50 px-3 py-2 text-xs text-red-600">{error}</p>
+          <p className="farm-alert-error px-3 py-2 text-xs" role="alert">{error}</p>
         )}
 
         {/* Notes timeline */}
@@ -124,16 +124,15 @@ export function JottingsCard({ initialNotes }: JottingsCardProps = {}) {
               {notes.map((n, i) => (
                 <div key={i} className="flex items-start gap-2.5 text-sm relative">
                   {/* Timeline dot */}
-                  <div className="absolute -left-3.5 top-1.5 h-2 w-2 shrink-0 rounded-full border border-white bg-[var(--farm-green-soft)] ring-1 ring-[var(--farm-green)]/25" />
+                  <div className="absolute -left-3.5 top-1.5 h-2 w-2 shrink-0 rounded-full border border-[var(--farm-paper)] bg-[var(--farm-green)] ring-1 ring-[var(--farm-green)]/25" />
 
                   <span className="mt-0.5 w-10 shrink-0 font-mono text-[11px] leading-relaxed text-[var(--farm-muted)]">
                     {n.time}
                   </span>
-                  <div className="min-w-0 max-w-none break-words text-[#4f5e55] prose prose-sm prose-slate leading-relaxed
+                  <div className="farm-prose min-w-0 max-w-none break-words prose prose-sm leading-relaxed
                     prose-p:my-0 prose-p:text-sm prose-p:leading-relaxed
-                    prose-a:text-blue-600 prose-a:no-underline hover:prose-a:underline
-                    prose-code:text-xs prose-code:bg-slate-100 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:font-mono prose-code:before:content-none prose-code:after:content-none
-                    prose-strong:text-slate-700 prose-strong:font-semibold
+                    prose-code:text-xs prose-code:font-mono prose-code:before:content-none prose-code:after:content-none
+                    prose-strong:font-semibold
                     prose-ul:my-0.5 prose-ol:my-0.5 prose-li:my-0.5 prose-li:text-sm
                   ">
                     <MarkdownRenderer content={n.text} />

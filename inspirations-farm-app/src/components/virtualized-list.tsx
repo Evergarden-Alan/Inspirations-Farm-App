@@ -37,6 +37,8 @@ export function VirtualizedList<T>({
 }: VirtualizedListProps<T>) {
   const parentRef = useRef<HTMLDivElement>(null);
 
+  // TanStack Virtual intentionally exposes mutable measurement functions.
+  // eslint-disable-next-line react-hooks/incompatible-library
   const virtualizer = useVirtualizer({
     count: items.length,
     getScrollElement: () => parentRef.current,
@@ -48,7 +50,8 @@ export function VirtualizedList<T>({
     <div
       ref={parentRef}
       className={`overflow-auto ${className}`}
-      style={{ contain: "strict" }} // 性能优化
+      style={{ contain: "layout paint style" }}
+      role="list"
     >
       <div
         style={{
@@ -68,6 +71,7 @@ export function VirtualizedList<T>({
               key={key}
               data-index={virtualItem.index}
               ref={virtualizer.measureElement}
+              role="listitem"
               style={{
                 position: "absolute",
                 top: 0,

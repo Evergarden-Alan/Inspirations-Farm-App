@@ -47,7 +47,7 @@ export function TabLayout({ todayPanel, inspirationsPanel, jottingsPanel }: Prop
   return (
     <>
       {/* ── Mobile: single-panel view ─────────────────────── */}
-      <div className="px-4 pb-[calc(9rem+env(safe-area-inset-bottom))] pt-5 lg:hidden">
+      <div className="mx-auto max-w-2xl px-4 pb-[calc(9rem+env(safe-area-inset-bottom))] pt-5 sm:px-6 lg:hidden">
         <AnimatePresence mode="wait" initial={false}>
           <motion.div
             key={activeTab}
@@ -62,7 +62,7 @@ export function TabLayout({ todayPanel, inspirationsPanel, jottingsPanel }: Prop
       </div>
 
       {/* ── Desktop: 2-column grid ────────────────────────── */}
-      <div className="mx-auto hidden max-w-[1400px] grid-cols-[minmax(0,0.88fr)_minmax(0,1.12fr)] items-start gap-8 px-8 pb-24 pt-6 lg:grid xl:gap-10">
+      <div className="mx-auto hidden max-w-[1280px] grid-cols-[minmax(0,0.82fr)_minmax(0,1.18fr)] items-start gap-8 px-8 pb-24 pt-6 lg:grid xl:gap-10">
         <div className="flex flex-col gap-8">
           {todayPanel}
           {jottingsPanel}
@@ -88,7 +88,7 @@ export function TabLayout({ todayPanel, inspirationsPanel, jottingsPanel }: Prop
                 aria-current={active ? "page" : undefined}
                 className={`relative flex min-h-[54px] flex-1 touch-manipulation flex-col items-center justify-center gap-1 rounded-2xl py-2 text-[11px] font-medium transition-all ${
                   active
-                    ? "bg-[var(--farm-green)] text-white shadow-sm"
+                    ? "bg-[var(--farm-green)] text-[var(--primary-foreground)] shadow-sm"
                     : "text-[var(--farm-muted)] hover:bg-[var(--farm-paper-deep)] hover:text-[var(--farm-ink)]"
                 }`}
               >

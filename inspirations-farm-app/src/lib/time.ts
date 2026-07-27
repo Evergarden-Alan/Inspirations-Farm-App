@@ -51,9 +51,9 @@ export function parseBeijingTime(raw: string): Date {
 export function getSurvivalColor(createdAt: string): string {
   const created = parseBeijingTime(createdAt);
   const days = (Date.now() - created.getTime()) / 86_400_000;
-  if (days >= 7) return "text-red-400";
-  if (days >= 3) return "text-amber-400";
-  return "text-slate-400";
+  if (days >= 7) return "farm-age-old";
+  if (days >= 3) return "farm-age-growing";
+  return "farm-age-fresh";
 }
 
 export function getSurvivalLabel(createdAt: string): string {

@@ -1,83 +1,78 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useSyncExternalStore } from "react";
 
-type Theme = "light" | "dark" | "auto";
-type ResolvedTheme = "light" | "dark";
+export type Theme = "light" | "dark" | "auto";
+export type ResolvedTheme = "light" | "dark";
 
-function getAutoTheme(): ResolvedTheme {
+const STORAGE_KEY = "theme";
+const THEME_EVENT = "farm:theme-change";
+
+function isTheme(value: string | null): value is Theme {
+  return value === "light" || value === "dark" || value === "auto";
+}
+
+function getStoredTheme(): Theme {
+  if (typeof window === "undefined") return "auto";
+  try {
+    const stored = window.localStorage.getItem(STORAGE_KEY);
+    return isTheme(stored) ? stored : "auto";
+  } catch {
+    return "auto";
+  }
+}
+
+export function getAutoTheme(): ResolvedTheme {
   const hour = new Date().getHours();
-  // 18:00 - 次日 6:00 为暗色
   return hour >= 18 || hour < 6 ? "dark" : "light";
 }
 
-export function useTheme() {
-  const [theme, setTheme] = useState<Theme>("auto");
-  const [resolvedTheme, setResolvedTheme] = useState<ResolvedTheme>(() => {
-    // SSR 时返回 light，客户端 hydrate 后会立即更新
-    if (typeof window === "undefined") return "light";
-    const stored = localStorage.getItem("theme");
-    if (stored === "light" || stored === "dark") return stored;
-    return getAutoTheme();
-  });
-
-  // 初始化：从 localStorage 读取
-  useEffect(() => {
-    const stored = localStorage.getItem("theme");
-    if (stored === "light" || stored === "dark" || stored === "auto") {
-      setTheme(stored);
-    }
-  }, []);
-
-  // 应用主题到 DOM
-  useEffect(() => {
-    const root = document.documentElement;
-    const resolved = theme === "auto" ? getAutoTheme() : theme;
-
-    if (resolved === "dark") {
-      root.classList.add("dark");
-    } else {
-      root.classList.remove("dark");
-    }
-
-    setResolvedTheme(resolved);
-
-    // 更新 theme-color meta 标签
-    const meta = document.querySelector('meta[name="theme-color"]');
-    if (meta) {
-      meta.setAttribute("content", resolved === "dark" ? "#1a1f1c" : "#f2efe4");
-    }
-
-    // auto 模式下，每分钟检查一次时间（捕获 6:00/18:00 切换点）
-    if (theme === "auto") {
-      const interval = setInterval(() => {
-        const newResolved = getAutoTheme();
-        if (newResolved !== resolved) {
-          setResolvedTheme(newResolved);
-          if (newResolved === "dark") {
-            root.classList.add("dark");
-          } else {
-            root.classList.remove("dark");
-          }
-          // 更新 meta
-          const m = document.querySelector('meta[name="theme-color"]');
-          if (m) {
-            m.setAttribute(
-              "content",
-              newResolved === "dark" ? "#1a1f1c" : "#f2efe4"
-            );
-          }
-        }
-      }, 60000); // 每分钟
-
-      return () => clearInterval(interval);
-    }
-  }, [theme]);
-
-  function setThemeWithStorage(newTheme: Theme) {
-    setTheme(newTheme);
-    localStorage.setItem("theme", newTheme);
+function subscribe(onStoreChange: () => void) {
+  function handleStorage(event: StorageEvent) {
+    if (event.key === STORAGE_KEY) onStoreChange();
   }
 
-  return { theme, resolvedTheme, setTheme: setThemeWithStorage };
+  window.addEventListener("storage", handleStorage);
+  window.addEventListener(THEME_EVENT, onStoreChange);
+  return () => {
+    window.removeEventListener("storage", handleStorage);
+    window.removeEventListener(THEME_EVENT, onStoreChange);
+  };
+}
+
+function applyTheme(theme: Theme, autoTheme: ResolvedTheme) {
+  const resolved = theme === "auto" ? autoTheme : theme;
+  const root = document.documentElement;
+
+  root.classList.toggle("dark", resolved === "dark");
+  root.dataset.theme = theme;
+
+  const meta = document.querySelector<HTMLMetaElement>('meta[name="theme-color"]');
+  meta?.setAttribute("content", resolved === "dark" ? "#101914" : "#f3f0e6");
+}
+
+export function useTheme() {
+  const theme = useSyncExternalStore<Theme>(subscribe, getStoredTheme, () => "auto");
+  const [autoTheme, setAutoTheme] = useState<ResolvedTheme>(() => getAutoTheme());
+  const resolvedTheme = theme === "auto" ? autoTheme : theme;
+
+  useEffect(() => {
+    applyTheme(theme, autoTheme);
+
+    if (theme !== "auto") return;
+    const interval = window.setInterval(() => setAutoTheme(getAutoTheme()), 60_000);
+    return () => window.clearInterval(interval);
+  }, [theme, autoTheme]);
+
+  function setTheme(newTheme: Theme) {
+    try {
+      window.localStorage.setItem(STORAGE_KEY, newTheme);
+    } catch {
+      // The active page can still switch themes when storage is unavailable.
+    }
+    applyTheme(newTheme, getAutoTheme());
+    window.dispatchEvent(new Event(THEME_EVENT));
+  }
+
+  return { theme, resolvedTheme, setTheme };
 }

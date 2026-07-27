@@ -95,6 +95,42 @@ export function cascadeToggleAtLine(
 }
 
 /**
+ * Delete a task and all content nested beneath it. Blank lines immediately
+ * before the next sibling are preserved so section spacing remains intact.
+ * Ancestor completion states are recomputed from the remaining children.
+ */
+export function deleteTaskSubtreeAtLine(
+  content: string,
+  lineIndex: number
+): string {
+  const lines = content.split("\n");
+  const targetLine = lines[lineIndex];
+  if (!targetLine) return content;
+
+  const codeLines = collectCodeLines(parseMarkdownAst(content));
+  if (codeLines.has(lineIndex + 1) || !TASK_RE.test(targetLine)) return content;
+
+  const targetIndent = countIndent(targetLine);
+  let deleteEnd = lineIndex + 1;
+
+  for (let i = lineIndex + 1; i < lines.length; i++) {
+    const line = lines[i];
+    if (line.trim() === "") continue;
+
+    if (countIndent(line) <= targetIndent) break;
+    deleteEnd = i + 1;
+  }
+
+  lines.splice(lineIndex, deleteEnd - lineIndex);
+
+  const updatedContent = lines.join("\n");
+  const updatedCodeLines = collectCodeLines(parseMarkdownAst(updatedContent));
+  recomputeAncestors(lines, lineIndex, targetIndent, updatedCodeLines);
+
+  return lines.join("\n");
+}
+
+/**
  * Walk upward from a changed task and recompute each ancestor's checkbox
  * based on whether all of its descendants are done.
  */

@@ -26,10 +26,12 @@ import sql from 'highlight.js/lib/languages/sql';
 import cpp from 'highlight.js/lib/languages/cpp';
 import css from 'highlight.js/lib/languages/css';
 import xml from 'highlight.js/lib/languages/xml';
+import type { PluggableList } from 'unified';
 
-export const remarkPlugins = [remarkGfm, remarkMath];
+export const remarkPlugins: PluggableList = [remarkGfm, remarkMath];
 
-export const rehypePlugins = [
+export const rehypePlugins: PluggableList = [
+  rehypeSanitize,
   [
     rehypeHighlight,
     {
@@ -56,5 +58,4 @@ export const rehypePlugins = [
     },
   ],
   [rehypeKatex, { strict: false, throwOnError: false, output: 'html' }],
-  rehypeSanitize,
 ];

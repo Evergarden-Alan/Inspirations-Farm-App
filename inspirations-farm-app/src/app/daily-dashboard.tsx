@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { Plus, Loader2, Circle, CheckCircle2, CornerDownRight, Check, CalendarCheck2 } from "lucide-react";
+import { Plus, Loader2, Circle, CheckCircle2, CornerDownRight, Check, CalendarCheck2, Trash2 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -11,6 +11,7 @@ import rehypeSanitize from "rehype-sanitize";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
+import { PriorityPicker, type Priority } from "@/components/priority-picker";
 import { apiFetch, AuthError } from "@/lib/api";
 import { getBeijingDateString } from "@/lib/beijing-time";
 import { insertSubtaskLine, insertIntoDailySection, parseTasks } from "@/lib/github";
@@ -35,6 +36,18 @@ interface DailyDashboardProps {
   };
 }
 
+function getTaskSubtreeSize(tasks: DailyTask[], index: number): number {
+  const parentLevel = tasks[index].indentLevel;
+  let size = 1;
+
+  for (let i = index + 1; i < tasks.length; i++) {
+    if (tasks[i].indentLevel <= parentLevel) break;
+    size++;
+  }
+
+  return size;
+}
+
 export function DailyDashboard({ initialDaily }: DailyDashboardProps = {}) {
   const [state, setState] = useState<DailyState | null>(() => {
     if (!initialDaily) return null;
@@ -51,10 +64,12 @@ export function DailyDashboard({ initialDaily }: DailyDashboardProps = {}) {
   const [loading, setLoading] = useState(!initialDaily);
   const [acting, setActing] = useState(false);
   const [newTask, setNewTask] = useState("");
-  const [taskPriority, setTaskPriority] = useState("p2"); // Task priority state
+  const [taskPriority, setTaskPriority] = useState<Priority>("p2");
   const [error, setError] = useState<string | null>(null);
   const [addSubFor, setAddSubFor] = useState<number | null>(null);
   const [subText, setSubText] = useState("");
+  const [deleteConfirmFor, setDeleteConfirmFor] = useState<number | null>(null);
+  const [deletingTaskId, setDeletingTaskId] = useState<number | null>(null);
   const date = getBeijingDateString();
 
   // ── Conflict Retry Helpers ──────────────────────────
@@ -120,6 +135,7 @@ export function DailyDashboard({ initialDaily }: DailyDashboardProps = {}) {
       const res = await apiFetch(`/api/daily?date=${date}`);
       const data = await res.json();
       if (data.ok) {
+        setDeleteConfirmFor(null);
         setState({
           exists: data.exists,
           path: data.path,
@@ -357,6 +373,68 @@ export function DailyDashboard({ initialDaily }: DailyDashboardProps = {}) {
     }
   }
 
+  // ── Delete task subtree ─────────────────────────────
+  async function handleDeleteTask(task: DailyTask) {
+    if (!state?.tasks) return;
+
+    const parent =
+      task.parentId === null
+        ? null
+        : state.tasks.find((candidate) => candidate.id === task.parentId);
+
+    setActing(true);
+    setDeletingTaskId(task.id);
+    setError(null);
+
+    try {
+      const res = await apiFetch("/api/daily", {
+        method: "DELETE",
+        retryOnNetworkError: false,
+        body: JSON.stringify({
+          date,
+          task: {
+            lineNumber: task.lineNumber,
+            text: task.text,
+            indent: task.indent,
+            parentText: parent?.text ?? null,
+          },
+        }),
+      });
+      const data = await res.json();
+
+      if (!data.ok) {
+        setError(data.error ?? "删除任务失败");
+        return;
+      }
+
+      setDeleteConfirmFor(null);
+      setAddSubFor(null);
+      setSubText("");
+
+      if (typeof data.content === "string") {
+        setState({
+          ...state,
+          content: data.content,
+          sha: data.sha,
+          tasks: parseTasks(data.content),
+        });
+      } else {
+        await fetchJournal();
+      }
+
+      // Mobile and desktop layouts keep separate dashboard instances mounted.
+      window.dispatchEvent(new CustomEvent("daily:updated"));
+    } catch (err) {
+      if (!(err instanceof AuthError)) {
+        setError("请求响应中断，正在同步最新任务状态");
+        await fetchJournal();
+      }
+    } finally {
+      setDeletingTaskId(null);
+      setActing(false);
+    }
+  }
+
   function handleSubKeyDown(e: React.KeyboardEvent, parent: DailyTask) {
     if (e.key === "Enter") {
       e.preventDefault();
@@ -439,7 +517,7 @@ export function DailyDashboard({ initialDaily }: DailyDashboardProps = {}) {
 
       <CardContent className="space-y-3">
         {error && (
-          <p className="rounded-xl bg-red-50 px-3 py-2 text-xs text-red-600">{error}</p>
+          <p className="farm-alert-error px-3 py-2 text-xs" role="alert">{error}</p>
         )}
 
         {/* Task list */}
@@ -450,6 +528,7 @@ export function DailyDashboard({ initialDaily }: DailyDashboardProps = {}) {
               const iconSize = isSub ? "w-5 h-5" : "w-6 h-6";
               const isRollover = task.displayText.includes("🔄");
               const cleanText = task.displayText.replace(/🔄/g, "").trim();
+              const childCount = getTaskSubtreeSize(state.tasks!, i) - 1;
 
               return (
                 <li key={task.id}>
@@ -457,13 +536,14 @@ export function DailyDashboard({ initialDaily }: DailyDashboardProps = {}) {
                     className="group/task relative"
                     style={{ marginLeft: `${task.indentLevel * 1.5}rem` }}
                   >
-                    {/* Main row */}
-                    <button
-                      onClick={() => handleToggle(i)}
-                      disabled={acting}
-                      aria-label={task.done ? `标记「${task.displayText}」为未完成` : `标记「${task.displayText}」为已完成`}
-                      className="flex min-h-[3.5rem] w-full touch-manipulation items-center gap-3 rounded-xl px-3 py-3 text-left transition-colors hover:bg-[var(--farm-green-soft)]/55 active:bg-[var(--farm-green-soft)] disabled:opacity-50"
-                    >
+                    {/* Toggle and subtask actions are siblings to keep the HTML valid. */}
+                    <div className="flex min-h-[3.5rem] w-full items-center rounded-xl transition-colors hover:bg-[var(--farm-green-soft)]/60">
+                      <button
+                        onClick={() => handleToggle(i)}
+                        disabled={acting}
+                        aria-label={task.done ? `标记「${task.displayText}」为未完成` : `标记「${task.displayText}」为已完成`}
+                        className="flex min-h-[3.5rem] min-w-0 flex-1 touch-manipulation items-center gap-3 px-3 py-3 text-left disabled:opacity-50"
+                      >
                       <motion.div
                         key={task.done ? "done" : "undone"}
                         initial={{ scale: 0.7, opacity: 0.6 }}
@@ -480,17 +560,17 @@ export function DailyDashboard({ initialDaily }: DailyDashboardProps = {}) {
                       <span
                         className={`text-base leading-relaxed transition-all duration-200 min-w-0 ${
                           task.done
-                            ? "text-[#a1a49b] line-through"
+                            ? "text-[var(--farm-faint)] line-through"
                             : isSub
-                              ? "text-[#59665e]"
+                              ? "text-[var(--farm-text)]"
                               : "text-[var(--farm-ink)]"
                         }`}
                       >
                         <ReactMarkdown
                           remarkPlugins={[remarkGfm, remarkMath]}
                           rehypePlugins={[
+                            rehypeSanitize,
                             [rehypeKatex, { strict: false, throwOnError: false, output: "html" }],
-                            rehypeSanitize
                           ]}
                           components={{
                             p: ({ ...props}) => (
@@ -514,25 +594,22 @@ export function DailyDashboard({ initialDaily }: DailyDashboardProps = {}) {
                           </span>
                         )}
                         {isRollover && (
-                          <span className="ml-1.5 rounded-sm bg-amber-100 px-1.5 py-0.5 text-[10px] font-medium text-amber-800">
+                          <span className="farm-rollover-badge ml-1.5 rounded-full px-1.5 py-0.5 text-[10px] font-medium">
                             延期
                           </span>
                         )}
                         {/* Priority badge */}
                         {task.priority && task.priority !== "p2" && (
                           <span
-                            className={`ml-1.5 rounded px-1.5 py-0.5 text-[10px] font-medium ${
-                              task.priority === "p0"
-                                ? "bg-red-50 text-red-600"
-                                : task.priority === "p1"
-                                  ? "bg-amber-50 text-amber-600"
-                                  : "bg-slate-50 text-slate-500"
-                            }`}
+                            className="farm-priority-badge ml-1.5 align-middle"
+                            data-priority={task.priority}
                           >
                             {task.priority.toUpperCase()}
                           </span>
                         )}
                       </span>
+
+                      </button>
 
                       {/* Add sub-task button — mobile always visible, desktop hover */}
                       {task.indentLevel < 4 && (
@@ -542,15 +619,80 @@ export function DailyDashboard({ initialDaily }: DailyDashboardProps = {}) {
                             e.stopPropagation();
                             setAddSubFor(task.id);
                             setSubText("");
+                            setDeleteConfirmFor(null);
                           }}
                           aria-label={`为「${task.displayText}」添加子任务`}
-                          className="ml-auto touch-manipulation rounded-lg p-2 text-[var(--farm-muted)] opacity-50 transition-all hover:bg-white/70 hover:text-[var(--farm-green)] active:opacity-100 md:opacity-0 md:group-hover/task:opacity-100"
+                          className="mr-1 ml-auto min-h-10 min-w-10 touch-manipulation rounded-lg p-2 text-[var(--farm-muted)] opacity-60 transition-all hover:bg-[var(--farm-paper-raised)] hover:text-[var(--farm-green)] active:opacity-100 md:opacity-0 md:group-hover/task:opacity-100 md:focus-visible:opacity-100"
                           title="添加子任务"
                         >
                           <CornerDownRight className="w-4 h-4" />
                         </button>
                       )}
-                    </button>
+
+                      {/* Delete action — mobile always visible, desktop hover */}
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setDeleteConfirmFor((current) => current === task.id ? null : task.id);
+                          setAddSubFor(null);
+                          setSubText("");
+                        }}
+                        disabled={acting}
+                        aria-label={`删除「${task.displayText}」`}
+                        aria-expanded={deleteConfirmFor === task.id}
+                        aria-controls={`delete-task-${task.id}`}
+                        className="mr-1 min-h-10 min-w-10 touch-manipulation rounded-lg p-2 text-[var(--farm-muted)] opacity-60 transition-all hover:bg-[var(--farm-danger-bg)] hover:text-[var(--farm-danger)] active:opacity-100 disabled:opacity-30 md:opacity-0 md:group-hover/task:opacity-100 md:focus-visible:opacity-100"
+                        title="删除任务"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </div>
+
+                    {/* Destructive actions require a second, explicit click. */}
+                    <AnimatePresence>
+                      {deleteConfirmFor === task.id && (
+                        <motion.div
+                          id={`delete-task-${task.id}`}
+                          initial={{ opacity: 0, height: 0 }}
+                          animate={{ opacity: 1, height: "auto" }}
+                          exit={{ opacity: 0, height: 0 }}
+                          transition={{ duration: 0.18, ease: "easeInOut" }}
+                          className="overflow-hidden"
+                        >
+                          <div className="mx-2 mb-2 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border border-[var(--farm-danger-line)] bg-[var(--farm-danger-bg)] px-3 py-2.5">
+                            <p className="min-w-0 flex-1 text-sm text-[var(--farm-danger)]">
+                              {childCount > 0
+                                ? `将同时删除 ${childCount} 个子任务`
+                                : "确定删除这个任务？"}
+                            </p>
+                            <div className="ml-auto flex items-center gap-2">
+                              <button
+                                type="button"
+                                onClick={() => setDeleteConfirmFor(null)}
+                                disabled={deletingTaskId === task.id}
+                                className="min-h-9 rounded-lg px-3 text-xs font-medium text-[var(--farm-text)] transition-colors hover:bg-[var(--farm-paper-raised)] disabled:opacity-50"
+                              >
+                                取消
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => void handleDeleteTask(task)}
+                                disabled={deletingTaskId === task.id}
+                                className="flex min-h-9 min-w-[4.5rem] items-center justify-center gap-1.5 rounded-lg bg-[var(--farm-danger)] px-3 text-xs font-semibold text-[var(--farm-paper-raised)] transition-opacity hover:opacity-90 disabled:opacity-60"
+                              >
+                                {deletingTaskId === task.id ? (
+                                  <>
+                                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                                    删除中...
+                                  </>
+                                ) : "删除"}
+                              </button>
+                            </div>
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
 
                     {/* Inline sub-task input — animated */}
                     <AnimatePresence>
@@ -626,40 +768,11 @@ export function DailyDashboard({ initialDaily }: DailyDashboardProps = {}) {
             </Button>
           </div>
 
-          {/* Priority selector */}
-          <div className="flex items-center gap-2">
-            <span className="text-xs text-[var(--farm-muted)]">优先级:</span>
-            <div className="flex gap-1.5">
-              {["p0", "p1", "p2", "p3"].map((p) => {
-                const active = taskPriority === p;
-                const color =
-                  p === "p0"
-                    ? "bg-red-50 text-red-600 border-red-300"
-                    : p === "p1"
-                      ? "bg-amber-50 text-amber-600 border-amber-300"
-                      : p === "p2"
-                        ? "bg-blue-50 text-blue-600 border-blue-300"
-                        : "bg-slate-50 text-slate-500 border-slate-300";
-
-                return (
-                  <button
-                    key={p}
-                    type="button"
-                    onClick={() => setTaskPriority(p)}
-                    disabled={acting}
-                    aria-pressed={active}
-                    className={`px-2.5 py-1 text-xs rounded border transition-colors min-h-[32px] touch-manipulation ${
-                      active
-                        ? `${color} font-medium`
-                        : "border-transparent text-[var(--farm-muted)] hover:bg-[var(--farm-paper-deep)]"
-                    }`}
-                  >
-                    {p.toUpperCase()}
-                  </button>
-                );
-              })}
-            </div>
-          </div>
+          <PriorityPicker
+            value={taskPriority}
+            onChange={setTaskPriority}
+            disabled={acting}
+          />
         </div>
       </CardContent>
     </Card>

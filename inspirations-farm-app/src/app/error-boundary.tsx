@@ -50,18 +50,18 @@ export class ErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundarySt
 
       // Default error UI
       return (
-        <div className="min-h-screen flex items-center justify-center p-4 bg-slate-50">
-          <div className="max-w-md w-full bg-white rounded-xl shadow-lg p-6 text-center">
-            <AlertTriangle className="w-12 h-12 text-amber-500 mx-auto mb-4" />
-            <h2 className="text-lg font-semibold text-slate-800 mb-2">
+        <div className="farm-lock flex min-h-screen items-center justify-center p-4">
+          <div className="farm-panel w-full max-w-md p-7 text-center">
+            <AlertTriangle className="mx-auto mb-4 h-12 w-12 text-[var(--farm-warning)]" />
+            <h2 className="mb-2 text-lg font-semibold text-[var(--farm-ink)]">
               出错了
             </h2>
-            <p className="text-sm text-slate-600 mb-4">
+            <p className="mb-5 text-sm text-[var(--farm-muted)]">
               {this.state.error.message || "未知错误"}
             </p>
             <button
               onClick={this.retry}
-              className="px-4 py-2 bg-emerald-600 text-white rounded-lg text-sm font-medium hover:bg-emerald-700 transition-colors"
+              className="farm-primary-button min-h-10 px-5 text-sm font-medium transition-colors"
             >
               重试
             </button>

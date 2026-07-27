@@ -7,8 +7,8 @@ export default function manifest(): MetadataRoute.Manifest {
     description: "把灵感种下，把今天过好。",
     start_url: "/",
     display: "standalone",
-    background_color: "#f2efe4",
-    theme_color: "#f2efe4",
+    background_color: "#f3f0e6",
+    theme_color: "#356b4c",
     orientation: "portrait-primary",
     icons: [
       {

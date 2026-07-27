@@ -1,36 +1,32 @@
 "use client";
 
-import { Sun, Moon, Clock } from "lucide-react";
-import { useTheme } from "@/lib/use-theme";
-import { Button } from "@/components/ui/button";
+import { Clock3, Moon, Sun } from "lucide-react";
+import { useTheme, type Theme } from "@/lib/use-theme";
+
+const OPTIONS: { id: Theme; label: string; icon: typeof Sun }[] = [
+  { id: "light", label: "亮色模式", icon: Sun },
+  { id: "auto", label: "自动模式", icon: Clock3 },
+  { id: "dark", label: "暗色模式", icon: Moon },
+];
 
 export function ThemeToggle() {
   const { theme, setTheme } = useTheme();
 
-  function cycleTheme() {
-    if (theme === "light") setTheme("dark");
-    else if (theme === "dark") setTheme("auto");
-    else setTheme("light");
-  }
-
   return (
-    <Button
-      variant="ghost"
-      size="icon"
-      onClick={cycleTheme}
-      className="size-9 text-[var(--farm-muted)] hover:text-[var(--farm-ink)] transition-colors"
-      aria-label="切换主题"
-      title={
-        theme === "auto"
-          ? "自动（根据时间）"
-          : theme === "light"
-            ? "亮色模式"
-            : "暗色模式"
-      }
-    >
-      {theme === "auto" && <Clock className="size-4" />}
-      {theme === "light" && <Sun className="size-4" />}
-      {theme === "dark" && <Moon className="size-4" />}
-    </Button>
+    <div className="farm-theme-switcher" role="group" aria-label="界面主题">
+      {OPTIONS.map(({ id, label, icon: Icon }) => (
+        <button
+          key={id}
+          type="button"
+          onClick={() => setTheme(id)}
+          aria-label={label}
+          aria-pressed={theme === id}
+          title={label}
+          className="farm-theme-option touch-manipulation"
+        >
+          <Icon className="size-3.5" strokeWidth={1.9} />
+        </button>
+      ))}
+    </div>
   );
 }

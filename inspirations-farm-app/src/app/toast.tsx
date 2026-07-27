@@ -72,7 +72,7 @@ export function ToastContainer() {
 
   return (
     <div
-      className="pointer-events-none fixed right-4 top-20 z-[60] flex flex-col gap-2"
+      className="pointer-events-none fixed inset-x-4 top-20 z-[60] flex items-end flex-col gap-2 sm:left-auto"
       aria-live="polite"
       aria-atomic="false"
     >
@@ -86,9 +86,9 @@ export function ToastContainer() {
             transition={{ duration: 0.2, ease: "easeOut" }}
             className={`pointer-events-auto flex items-start gap-2.5 px-3 py-2.5 rounded-xl shadow-lg text-sm max-w-[280px] min-w-[200px] border ${
               item.type === "success"
-                ? "bg-[#f2f7ef] border-[#bed0c1] text-[var(--farm-green)]"
+                ? "border-[var(--farm-line-strong)] bg-[var(--farm-green-soft)] text-[var(--farm-green-strong)]"
                 : item.type === "error"
-                  ? "bg-red-50 border-red-200 text-red-800"
+                  ? "border-[var(--farm-danger-line)] bg-[var(--farm-danger-bg)] text-[var(--farm-danger)]"
                   : "bg-[var(--farm-paper)] border-[var(--farm-line)] text-[var(--farm-ink)]"
             }`}
           >
@@ -97,7 +97,7 @@ export function ToastContainer() {
               {item.type === "success" ? (
                 <CheckCircle2 className="h-4 w-4 text-[var(--farm-green)]" />
               ) : item.type === "error" ? (
-                <XCircle className="w-4 h-4 text-red-500" />
+                <XCircle className="w-4 h-4 text-[var(--farm-danger)]" />
               ) : (
                 <span className="w-4 h-4 inline-block" />
               )}

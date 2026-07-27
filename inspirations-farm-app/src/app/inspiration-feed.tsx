@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Check, Trash2, Send, MessageSquarePlus, Loader2, ChevronDown, ChevronUp, Undo2, MoreHorizontal, Sprout } from "lucide-react";
+import { Check, Trash2, Send, MessageSquarePlus, Loader2, ChevronDown, ChevronUp, Undo2, MoreHorizontal, Search, Sprout, X } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
@@ -14,28 +14,27 @@ import { toast } from "@/app/toast";
 import { getBeijingDateString } from "@/lib/beijing-time";
 import { MarkdownRenderer } from "@/components/markdown-renderer";
 import { VirtualizedList } from "@/components/virtualized-list";
+import { PriorityPicker, type Priority } from "@/components/priority-picker";
 
 // ── Shared prose class string ──────────────────────────────
 const PROSE_CN =
-  "prose prose-sm prose-slate max-w-none break-words text-[#526057] " +
+  "farm-prose prose prose-sm max-w-none break-words " +
   "prose-p:my-0.5 prose-p:leading-relaxed prose-p:text-xs " +
   "prose-ul:my-0.5 prose-ol:my-0.5 " +
   "prose-li:my-1 prose-li:text-xs prose-li:leading-relaxed " +
-  "prose-a:text-blue-600 prose-a:no-underline hover:prose-a:underline " +
-  "prose-code:text-[11px] prose-code:bg-slate-100 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:font-mono prose-code:before:content-none prose-code:after:content-none " +
+  "prose-code:text-[11px] prose-code:font-mono prose-code:before:content-none prose-code:after:content-none " +
   "prose-pre:text-xs prose-pre:my-1 " +
-  "prose-strong:text-slate-700 prose-strong:font-semibold " +
+  "prose-strong:font-semibold " +
   "prose-headings:my-1 prose-headings:text-sm prose-headings:font-medium " +
   "prose-hr:my-1 " +
   "prose-blockquote:my-1 prose-blockquote:text-xs " +
   "prose-table:text-xs prose-th:text-xs prose-td:text-xs";
 
 const PATCH_PROSE_CN =
-  "text-xs text-[#667168] leading-relaxed prose prose-sm prose-slate max-w-none break-words " +
+  "farm-prose text-xs leading-relaxed prose prose-sm max-w-none break-words " +
   "prose-p:my-0 prose-p:text-xs prose-p:leading-relaxed " +
-  "prose-a:text-blue-600 prose-a:no-underline hover:prose-a:underline " +
-  "prose-code:text-[11px] prose-code:bg-slate-100 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:font-mono prose-code:before:content-none prose-code:after:content-none " +
-  "prose-strong:text-slate-600 prose-strong:font-semibold " +
+  "prose-code:text-[11px] prose-code:font-mono prose-code:before:content-none prose-code:after:content-none " +
+  "prose-strong:font-semibold " +
   "prose-ul:my-0.5 prose-ol:my-0.5 prose-li:my-0.5 prose-li:text-xs " +
   "prose-hr:my-1 " +
   "prose-blockquote:my-1 prose-blockquote:text-xs";
@@ -70,7 +69,7 @@ export function InspirationFeed({ initialItems }: InspirationFeedProps = {}) {
   const [filterPriority, setFilterPriority] = useState("all");
   const [filterTag, setFilterTag] = useState("all");
   const [searchQuery, setSearchQuery] = useState("");
-  const [newPriority, setNewPriority] = useState("p2");
+  const [newPriority, setNewPriority] = useState<Priority>("p2");
   const [newTags, setNewTags] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const router = useRouter();
@@ -451,38 +450,11 @@ export function InspirationFeed({ initialItems }: InspirationFeedProps = {}) {
 
         {/* Priority + Tags controls */}
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-          {/* Priority selector */}
-          <div className="flex items-center gap-1">
-            <span className="mr-1 text-[10px] font-semibold tracking-[0.12em] text-[var(--farm-muted)]">优先级</span>
-            {["p0", "p1", "p2", "p3"].map((p) => {
-              const active = newPriority === p;
-              const color =
-                p === "p0"
-                  ? "bg-red-50 text-red-600 border-red-300"
-                  : p === "p1"
-                    ? "bg-amber-50 text-amber-600 border-amber-300"
-                    : p === "p2"
-                      ? "bg-blue-50 text-blue-600 border-blue-300"
-                      : "bg-slate-50 text-slate-500 border-slate-300";
-              return (
-                <button
-                  key={p}
-                  type="button"
-                  onClick={() => setNewPriority(p)}
-                  disabled={submitting}
-                  aria-pressed={active}
-                  aria-label={`优先级 ${p.toUpperCase()}`}
-                  className={`px-2 py-0.5 text-xs rounded border transition-colors ${
-                    active
-                      ? `${color} font-medium`
-                      : "border-transparent text-[var(--farm-muted)] hover:bg-[var(--farm-paper-deep)]"
-                  }`}
-                >
-                  {p.toUpperCase()}
-                </button>
-              );
-            })}
-          </div>
+          <PriorityPicker
+            value={newPriority}
+            onChange={setNewPriority}
+            disabled={submitting}
+          />
 
           {/* Tags input */}
           <Input
@@ -509,7 +481,7 @@ export function InspirationFeed({ initialItems }: InspirationFeedProps = {}) {
 
       {/* Error */}
       {error && (
-        <p className="rounded-xl bg-red-50 px-3 py-2 text-sm text-red-600">
+        <p className="farm-alert-error px-3 py-2 text-sm" role="alert">
           {error}
         </p>
       )}
@@ -517,22 +489,26 @@ export function InspirationFeed({ initialItems }: InspirationFeedProps = {}) {
       {/* Search Bar */}
       {items.length > 0 && (
         <div className="relative">
+          <Search
+            className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-[var(--farm-muted)]"
+            aria-hidden="true"
+          />
           <Input
             type="search"
             placeholder="搜索标题、内容、标签..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="farm-input h-11 pl-4 pr-10 text-sm"
+            className="farm-input h-11 rounded-xl pl-10 pr-10 text-sm"
+            aria-label="搜索灵感"
           />
           {searchQuery && (
             <button
+              type="button"
               onClick={() => setSearchQuery("")}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--farm-muted)] hover:text-[var(--farm-ink)] transition-colors"
+              className="absolute right-2 top-1/2 grid size-8 -translate-y-1/2 place-items-center rounded-lg text-[var(--farm-muted)] transition-colors hover:bg-[var(--farm-paper-deep)] hover:text-[var(--farm-ink)]"
               aria-label="清空搜索"
             >
-              <svg className="size-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
+              <X className="size-4" />
             </button>
           )}
         </div>
@@ -540,23 +516,14 @@ export function InspirationFeed({ initialItems }: InspirationFeedProps = {}) {
 
       {/* Filter Bar */}
       {items.length > 0 && (
-        <section className="space-y-2 rounded-2xl border border-[var(--farm-line)]/80 bg-[var(--farm-paper)]/45 p-2.5">
+        <section className="space-y-2 rounded-2xl border border-[var(--farm-line)] bg-[var(--farm-paper)]/60 p-2.5" aria-label="灵感筛选">
           {/* Priority filter — scrollable on mobile */}
           <div className="flex items-center gap-1.5 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden pb-0.5 -mx-1 px-1 flex-nowrap sm:flex-wrap">
+            <span className="mr-0.5 shrink-0 text-[10px] font-semibold tracking-[0.1em] text-[var(--farm-faint)]">优先级</span>
             {["all", "p0", "p1", "p2", "p3"].map((p) => {
               const active = filterPriority === p;
               const label = p === "all" ? "全部" : p.toUpperCase();
               const count = p === "all" ? items.length : (priorityCounts[p] ?? 0);
-              const color =
-                p === "p0"
-                  ? "text-red-600 bg-red-50"
-                  : p === "p1"
-                    ? "text-amber-600 bg-amber-50"
-                    : p === "p2"
-                      ? "text-blue-600 bg-blue-50"
-                      : p === "p3"
-                        ? "text-slate-500 bg-slate-100"
-                        : "";
               // Hide pills with zero items (except "all")
               if (p !== "all" && count === 0) return null;
               return (
@@ -565,11 +532,8 @@ export function InspirationFeed({ initialItems }: InspirationFeedProps = {}) {
                   onClick={() => setFilterPriority(p)}
                   aria-pressed={active}
                   aria-label={p === "all" ? "全部优先级" : `优先级 ${p.toUpperCase()}`}
-                  className={`flex items-center gap-1 px-2.5 py-1 text-xs rounded-full transition-colors min-h-[32px] touch-manipulation ${
-                    active
-                      ? `${color} font-medium`
-                      : "text-[var(--farm-muted)] hover:bg-[var(--farm-paper-deep)] hover:text-[var(--farm-ink)]"
-                  }`}
+                  data-priority={p === "all" ? undefined : p}
+                  className="farm-filter-pill touch-manipulation"
                 >
                   {label}
                   <span className={`text-[10px] tabular-nums ${active ? "opacity-70" : "opacity-50"}`}>
@@ -583,13 +547,11 @@ export function InspirationFeed({ initialItems }: InspirationFeedProps = {}) {
           {/* Tag filter — scrollable on mobile */}
           {allTags.length > 0 && (
             <div className="flex items-center gap-1.5 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden pb-0.5 -mx-1 px-1 flex-nowrap sm:flex-wrap">
+              <span className="mr-0.5 shrink-0 text-[10px] font-semibold tracking-[0.1em] text-[var(--farm-faint)]">标签</span>
               <button
                 onClick={() => setFilterTag("all")}
-                className={`px-2.5 py-1 text-xs rounded-full transition-colors min-h-[32px] touch-manipulation shrink-0 ${
-                  filterTag === "all"
-                    ? "bg-[var(--farm-green)] text-white font-medium"
-                    : "text-[var(--farm-muted)] hover:bg-[var(--farm-paper-deep)] hover:text-[var(--farm-ink)]"
-                }`}
+                aria-pressed={filterTag === "all"}
+                className="farm-filter-pill touch-manipulation"
               >
                 全部
               </button>
@@ -597,11 +559,8 @@ export function InspirationFeed({ initialItems }: InspirationFeedProps = {}) {
                 <button
                   key={tag}
                   onClick={() => setFilterTag(tag)}
-                  className={`px-2 py-0.5 text-xs rounded-full transition-colors min-h-[32px] touch-manipulation shrink-0 ${
-                    filterTag === tag
-                      ? "bg-[var(--farm-green)] text-white font-medium"
-                      : "bg-[var(--farm-paper-deep)] text-[var(--farm-muted)] hover:text-[var(--farm-ink)]"
-                  }`}
+                  aria-pressed={filterTag === tag}
+                  className="farm-filter-pill touch-manipulation"
                 >
                   {tag}
                 </button>
@@ -619,12 +578,12 @@ export function InspirationFeed({ initialItems }: InspirationFeedProps = {}) {
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: 8 }}
             transition={{ duration: 0.18 }}
-            className="flex items-center justify-between gap-3 rounded-xl bg-[var(--farm-ink)] px-3 py-2 text-sm text-white shadow-lg"
+            className="flex items-center justify-between gap-3 rounded-xl bg-[var(--farm-green-strong)] px-3 py-2 text-sm text-[var(--primary-foreground)] shadow-lg"
           >
-            <span className="text-xs text-white/70">已删除「{pendingDelete.item.title}」</span>
+            <span className="text-xs opacity-75">已删除「{pendingDelete.item.title}」</span>
             <button
               onClick={handleUndoDelete}
-              className="flex shrink-0 items-center gap-1 text-xs font-medium text-[#b8d6bc] hover:text-white"
+              className="flex shrink-0 items-center gap-1 text-xs font-semibold hover:opacity-75"
             >
               <Undo2 className="w-3.5 h-3.5" />
               撤销
@@ -647,12 +606,40 @@ export function InspirationFeed({ initialItems }: InspirationFeedProps = {}) {
           >
             {items.length === 0 ? "种子库还是空的，种下第一个念头吧。" : "没有匹配的灵感"}
           </motion.p>
+        ) : filteredItems.length <= 30 ? (
+          <AnimatePresence initial={false}>
+            {filteredItems.map((item) => (
+              <motion.div
+                key={item.sha}
+                layout
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, x: -12, scale: 0.98 }}
+                transition={{ duration: 0.2, ease: "easeOut" }}
+                className="mb-4"
+              >
+                <InspirationCard
+                  item={item}
+                  onComplete={handleComplete}
+                  onDelete={handleDelete}
+                  onPush={handlePushToDaily}
+                  onAppend={handleAppend}
+                  onAppendToggle={handleAppendToggle}
+                  onAppendTextChange={setAppendText}
+                  disabled={actionLoading === item.sha}
+                  pushing={pushingId === item.id}
+                  appending={appendingId === item.id}
+                  appendText={appendText}
+                />
+              </motion.div>
+            ))}
+          </AnimatePresence>
         ) : (
           <VirtualizedList
             items={filteredItems}
             estimateSize={280}
             overscan={5}
-            className="max-h-[80vh]"
+            className="max-h-[min(72vh,760px)] pr-1"
             getItemKey={(item) => item.sha}
             renderItem={(item) => (
               <div className="mb-4">
@@ -728,7 +715,7 @@ function InspirationCard({
 
   return (
     <Card
-      className={`farm-panel farm-seed-card group overflow-hidden transition-transform duration-200 hover:-translate-y-0.5 ${borderColor}`}
+      className={`farm-panel farm-seed-card group transition-transform duration-200 hover:-translate-y-0.5 ${borderColor}`}
     >
       <CardContent className="space-y-3 px-5 pb-3 pt-5">
         {/* Title */}
@@ -736,7 +723,7 @@ function InspirationCard({
           <p className="farm-display text-base font-semibold leading-snug text-[var(--farm-ink)]">
             {item.title}
           </p>
-          <span className="rounded-full bg-[var(--farm-paper-deep)] px-2 py-0.5 font-mono text-[9px] font-semibold tracking-wider text-[var(--farm-muted)]">
+          <span className="farm-priority-badge" data-priority={item.priority || "p2"}>
             {item.priority?.toUpperCase() || "P2"}
           </span>
         </div>
@@ -941,7 +928,7 @@ function InspirationCard({
                           onDelete(item);
                         }}
                         disabled={disabled}
-                        className="w-full flex items-center gap-2 px-3 py-2 text-sm text-red-600 hover:bg-red-50 transition-colors touch-manipulation"
+                        className="flex w-full touch-manipulation items-center gap-2 px-3 py-2 text-sm text-[var(--farm-danger)] transition-colors hover:bg-[var(--farm-danger-bg)]"
                       >
                         <Trash2 className="w-4 h-4" />
                         删除

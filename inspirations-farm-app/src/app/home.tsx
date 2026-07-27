@@ -53,7 +53,7 @@ export function Home({ children }: { children: React.ReactNode }) {
     <div className="farm-app min-h-screen font-sans antialiased">
       {/* Header */}
       <header className="farm-header sticky top-0 z-20">
-        <div className="mx-auto flex min-h-[68px] max-w-[1400px] items-center justify-between gap-4 px-4 py-3 sm:px-6 lg:px-8">
+        <div className="mx-auto flex min-h-[68px] max-w-[1280px] items-center justify-between gap-3 px-4 py-3 sm:px-6 lg:px-8">
           <div className="flex min-w-0 items-center gap-3">
             <div className="farm-brand-mark" aria-hidden="true">
               <Sprout className="size-5" strokeWidth={1.8} />
@@ -66,30 +66,32 @@ export function Home({ children }: { children: React.ReactNode }) {
             </div>
           </div>
 
-          <div className="farm-date-chip">
-            <CalendarDays className="size-4 text-[var(--farm-green)]" strokeWidth={1.8} />
-            <div className="text-right leading-tight">
-              <span className="block text-xs font-medium text-[var(--farm-ink)] sm:text-sm">
-                {formattedDate}
-              </span>
-              <span className="hidden font-mono text-[10px] tracking-wider text-[var(--farm-muted)] sm:block">
-                {today}
-              </span>
+          <div className="flex items-center gap-2 sm:gap-3">
+            <div className="farm-date-chip">
+              <CalendarDays className="size-4 text-[var(--farm-green)]" strokeWidth={1.8} />
+              <div className="farm-date-copy text-right leading-tight">
+                <span className="block text-xs font-medium text-[var(--farm-ink)] sm:text-sm">
+                  {formattedDate}
+                </span>
+                <span className="hidden font-mono text-[10px] tracking-wider text-[var(--farm-muted)] sm:block">
+                  {today}
+                </span>
+              </div>
             </div>
-          </div>
 
-          <ThemeToggle />
+            <ThemeToggle />
+          </div>
         </div>
       </header>
 
-      <section className="farm-intro mx-auto w-full max-w-[1400px] px-4 pb-2 pt-7 sm:px-6 sm:pt-10 lg:px-8 lg:pb-4">
+      <section className="farm-intro mx-auto w-full max-w-[1280px] px-4 pb-3 pt-8 sm:px-6 sm:pt-11 lg:px-8 lg:pb-5">
         <div className="max-w-2xl">
           <p className="farm-kicker mb-2">FIELD NOTES · TODAY</p>
           <h2 className="farm-display text-[clamp(1.8rem,4vw,3.6rem)] font-medium leading-[1.08] tracking-[-0.035em] text-[var(--farm-ink)]">
             把今天，慢慢种成
             <span className="block text-[var(--farm-green)]">想要的样子。</span>
           </h2>
-          <p className="mt-3 max-w-xl text-sm leading-6 text-[var(--farm-muted)] sm:text-base">
+          <p className="mt-4 max-w-xl text-sm leading-6 text-[var(--farm-muted)] sm:text-[15px]">
             收拢散落的念头，照看正在发生的事。每一次记录，都是下一次生长的起点。
           </p>
         </div>
