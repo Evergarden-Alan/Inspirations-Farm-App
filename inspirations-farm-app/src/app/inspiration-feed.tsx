@@ -13,6 +13,7 @@ import { apiFetch, AuthError } from "@/lib/api";
 import { toast } from "@/app/toast";
 import { getBeijingDateString } from "@/lib/beijing-time";
 import { MarkdownRenderer } from "@/components/markdown-renderer";
+import { VirtualizedList } from "@/components/virtualized-list";
 
 // ── Shared prose class string ──────────────────────────────
 const PROSE_CN =
@@ -647,16 +648,14 @@ export function InspirationFeed({ initialItems }: InspirationFeedProps = {}) {
             {items.length === 0 ? "种子库还是空的，种下第一个念头吧。" : "没有匹配的灵感"}
           </motion.p>
         ) : (
-          <AnimatePresence initial={false}>
-            {filteredItems.map((item) => (
-              <motion.div
-                key={item.sha}
-                layout
-                initial={{ opacity: 0, y: 12 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, x: -16, scale: 0.97 }}
-                transition={{ duration: 0.2, ease: "easeOut" }}
-              >
+          <VirtualizedList
+            items={filteredItems}
+            estimateSize={280}
+            overscan={5}
+            className="max-h-[80vh]"
+            getItemKey={(item) => item.sha}
+            renderItem={(item) => (
+              <div className="mb-4">
                 <InspirationCard
                   item={item}
                   onComplete={handleComplete}
@@ -670,9 +669,9 @@ export function InspirationFeed({ initialItems }: InspirationFeedProps = {}) {
                   appending={appendingId === item.id}
                   appendText={appendText}
                 />
-              </motion.div>
-            ))}
-          </AnimatePresence>
+              </div>
+            )}
+          />
         )}
       </section>
     </div>
