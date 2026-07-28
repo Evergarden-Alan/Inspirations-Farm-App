@@ -1,12 +1,29 @@
 import assert from "node:assert/strict";
+import { registerHooks } from "node:module";
 import test from "node:test";
 
 import {
   createTaskLocator,
+  insertIntoDailyNotesSection,
   locateTask,
+  parseDailyNotes,
   parseTasks,
   setTaskFocusDurationAtLine,
 } from "../src/lib/markdown-utils.ts";
+
+registerHooks({
+  resolve(specifier, context, nextResolve) {
+    try {
+      return nextResolve(specifier, context);
+    } catch (error) {
+      const isRelative = specifier.startsWith("./") || specifier.startsWith("../");
+      if (isRelative && !/\.[a-z]+$/i.test(specifier)) {
+        return nextResolve(`${specifier}.ts`, context);
+      }
+      throw error;
+    }
+  },
+});
 
 test("focus duration is written to the selected line before priority metadata", () => {
   const content = [
@@ -98,4 +115,65 @@ test("invalid line or duration leaves markdown unchanged", () => {
   const content = "# 当日日程\n- [ ] 任务";
   assert.equal(setTaskFocusDurationAtLine(content, 0, "5m"), content);
   assert.equal(setTaskFocusDurationAtLine(content, 1, "invalid"), content);
+});
+
+test("focus metadata updates preserve an existing daily jotting", () => {
+  const content = [
+    "# 当日日程",
+    "- [ ] 背单词",
+    "",
+    "---",
+    "",
+    "# 本日总结",
+    "",
+    "## 今日杂记",
+    "",
+  ].join("\n");
+  const withNote = insertIntoDailyNotesSection(content, "21:17", "今天的复盘");
+  const [task] = parseTasks(withNote);
+  const updated = setTaskFocusDurationAtLine(withNote, task.lineNumber, "19m");
+
+  assert.deepEqual(parseDailyNotes(updated), [
+    { time: "21:17", text: "今天的复盘" },
+  ]);
+  assert.match(updated, /- \[ \] 背单词 ⏱️19m/);
+});
+
+test("full daily updates send the caller SHA without a preflight replacement", async (t) => {
+  const originalFetch = globalThis.fetch;
+  const originalEnv = {
+    pat: process.env.GITHUB_PAT,
+    owner: process.env.REPO_OWNER,
+    repo: process.env.REPO_NAME,
+  };
+  const requests = [];
+
+  process.env.GITHUB_PAT = "test-token";
+  process.env.REPO_OWNER = "test-owner";
+  process.env.REPO_NAME = "test-repo";
+  globalThis.fetch = async (url, options) => {
+    requests.push({ url, options });
+    return Response.json({ content: { sha: "server-result-sha" } });
+  };
+
+  t.after(() => {
+    globalThis.fetch = originalFetch;
+    for (const [key, value] of Object.entries(originalEnv)) {
+      const envKey = key === "pat" ? "GITHUB_PAT" : key === "owner" ? "REPO_OWNER" : "REPO_NAME";
+      if (value === undefined) delete process.env[envKey];
+      else process.env[envKey] = value;
+    }
+  });
+
+  const { updateDailyJournal } = await import("../src/lib/github.ts");
+  const result = await updateDailyJournal(
+    "Journal/Daily/2026-07-28.md",
+    "caller-sha",
+    "latest caller content"
+  );
+
+  assert.deepEqual(result, { sha: "server-result-sha" });
+  assert.equal(requests.length, 1);
+  assert.equal(requests[0].options.method, "PUT");
+  assert.equal(JSON.parse(requests[0].options.body).sha, "caller-sha");
 });

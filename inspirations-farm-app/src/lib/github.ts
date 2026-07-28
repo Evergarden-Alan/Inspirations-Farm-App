@@ -629,55 +629,36 @@ export async function loadDiaryTemplate(date: string): Promise<string> {
   }
 }
 
-/** Update a daily journal file with new content. Retries on 409 (stale SHA) by
- *  re-fetching the current content + fresh SHA and re-applying the update if the
- *  content still differs. */
+/** Update a daily journal file with new content using the caller's exact SHA.
+ *
+ * This is a full-document replacement, so it must not swap in a newer SHA and
+ * write caller-computed content against it. A 409 is intentionally surfaced to
+ * the client, which can re-fetch the latest document and re-apply its mutation.
+ */
 export async function updateDailyJournal(
   filePath: string,
   sha: string,
   content: string
 ): Promise<{ sha: string }> {
-  return withConflictRetry(async () => {
-    const { owner, repo } = getConfig();
+  const { owner, repo } = getConfig();
+  const encoded = encodeBase64(content);
 
-    // On a 409 retry, re-fetch the current content to check if another write
-    // already applied the same change (e.g. a duplicate request).
-    const data = await githubFetch<{
-      sha: string;
-      content: string;
-      encoding: string;
-    }>(`/repos/${owner}/${repo}/contents/${filePath}`);
-
-    if (data.encoding !== "base64") {
-      throw new Error(`Unexpected encoding: ${data.encoding}`);
+  console.log(`[updateDailyJournal] PUT ${filePath} (sha=${sha})`);
+  const result = await githubFetch<{ content: { sha: string } }>(
+    `/repos/${owner}/${repo}/contents/${filePath}`,
+    {
+      method: "PUT",
+      body: JSON.stringify({
+        message: `Update daily journal`,
+        content: encoded,
+        sha,
+      }),
+      headers: { "Content-Type": "application/json" },
     }
-    const currentContent = decodeBase64(data.content).replace(/\r\n?/g, "\n");
+  );
 
-    // If the file already has the desired content, skip the write (idempotent).
-    if (currentContent === content) {
-      console.log(`[updateDailyJournal] ${filePath} already up-to-date (sha=${data.sha})`);
-      return { sha: data.sha };
-    }
-
-    const encoded = encodeBase64(content);
-
-    console.log(`[updateDailyJournal] PUT ${filePath} (sha=${data.sha})`);
-    const result = await githubFetch<{ content: { sha: string } }>(
-      `/repos/${owner}/${repo}/contents/${filePath}`,
-      {
-        method: "PUT",
-        body: JSON.stringify({
-          message: `Update daily journal`,
-          content: encoded,
-          sha: data.sha,
-        }),
-        headers: { "Content-Type": "application/json" },
-      }
-    );
-
-    console.log(`[updateDailyJournal] OK → new sha=${result.content.sha}`);
-    return { sha: result.content.sha };
-  });
+  console.log(`[updateDailyJournal] OK → new sha=${result.content.sha}`);
+  return { sha: result.content.sha };
 }
 
 /**
@@ -697,7 +678,7 @@ export async function updateDailyJournal(
 export async function modifyDailyJournal(
   date: string,
   modify: (content: string) => string | null
-): Promise<{ sha: string; content: string } | null> {
+): Promise<{ path: string; sha: string; content: string } | null> {
   // Track retry attempts for exponential backoff
   let attempt = 0;
 
@@ -730,6 +711,6 @@ export async function modifyDailyJournal(
     const newContent = modify(journal.content || "");
     if (newContent === null) return null; // modifier aborted (e.g. duplicate)
     const res = await updateDailyJournal(journal.path!, journal.sha!, newContent);
-    return { sha: res.sha, content: newContent };
+    return { path: journal.path!, sha: res.sha, content: newContent };
   });
 }

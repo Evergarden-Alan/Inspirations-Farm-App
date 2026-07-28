@@ -7,6 +7,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { apiFetch, AuthError } from "@/lib/api";
 import { getBeijingDateString } from "@/lib/beijing-time";
+import { parseDailyNotes } from "@/lib/markdown-utils";
 import { MarkdownRenderer } from "@/components/markdown-renderer";
 
 interface DailyNote {
@@ -19,6 +20,13 @@ interface JottingsCardProps {
     notes: DailyNote[];
     dailyExists: boolean;
   };
+}
+
+interface DailyUpdatedDetail {
+  date: string;
+  path: string;
+  sha: string;
+  content: string;
 }
 
 export function JottingsCard({ initialNotes }: JottingsCardProps = {}) {
@@ -50,8 +58,13 @@ export function JottingsCard({ initialNotes }: JottingsCardProps = {}) {
       : undefined;
 
     // Refresh when another component modifies the daily journal
-    function handleDailyUpdate() {
-      fetchNotes();
+    function handleDailyUpdate(event: Event) {
+      const detail = (event as CustomEvent<DailyUpdatedDetail>).detail;
+      if (detail?.date === date && typeof detail.content === "string") {
+        setNotes(parseDailyNotes(detail.content));
+        return;
+      }
+      void fetchNotes();
     }
     window.addEventListener("daily:updated", handleDailyUpdate);
     return () => {
@@ -76,8 +89,17 @@ export function JottingsCard({ initialNotes }: JottingsCardProps = {}) {
       const data = await res.json();
       if (data.ok) {
         setNoteText("");
-        // Optimistic update: use the server-returned timestamp
-        setNotes((prev) => [...prev, { time: data.time, text }]);
+        setNotes(parseDailyNotes(data.content));
+        window.dispatchEvent(
+          new CustomEvent<DailyUpdatedDetail>("daily:updated", {
+            detail: {
+              date,
+              path: data.path,
+              sha: data.sha,
+              content: data.content,
+            },
+          })
+        );
       } else {
         setError(data.error ?? "Failed to add note");
       }

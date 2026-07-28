@@ -81,7 +81,13 @@ export async function POST(req: NextRequest) {
       }
 
       revalidatePath("/");
-      return Response.json({ ok: true, sha: result.sha, time });
+      return Response.json({
+        ok: true,
+        path: result.path,
+        sha: result.sha,
+        content: result.content,
+        time,
+      });
     }
 
     // ── Push inspiration to daily ──────────────────

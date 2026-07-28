@@ -52,6 +52,13 @@ interface DailyDashboardProps {
   };
 }
 
+interface DailyUpdatedDetail {
+  date: string;
+  path: string;
+  sha: string;
+  content: string;
+}
+
 interface FocusSession {
   task: DailyTask;
   timer: FocusTimerState;
@@ -209,8 +216,25 @@ export function DailyDashboard({ initialDaily }: DailyDashboardProps = {}) {
       ? setTimeout(() => void fetchJournal(), 0)
       : undefined;
 
-    function handleDailyUpdate() {
-      fetchJournal();
+    function handleDailyUpdate(event: Event) {
+      const detail = (event as CustomEvent<DailyUpdatedDetail>).detail;
+      if (
+        detail?.date === date &&
+        typeof detail.path === "string" &&
+        typeof detail.sha === "string" &&
+        typeof detail.content === "string"
+      ) {
+        setDeleteConfirmFor(null);
+        setState({
+          exists: true,
+          path: detail.path,
+          sha: detail.sha,
+          content: detail.content,
+          tasks: parseTasks(detail.content),
+        });
+        return;
+      }
+      void fetchJournal();
     }
     window.addEventListener("daily:updated", handleDailyUpdate);
     return () => {
