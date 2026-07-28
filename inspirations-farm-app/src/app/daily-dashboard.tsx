@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useCallback } from "react";
-import { Plus, Loader2, Circle, CheckCircle2, CornerDownRight, Check, CalendarCheck2, Trash2 } from "lucide-react";
+import { Plus, Loader2, Circle, CheckCircle2, CornerDownRight, Check, CalendarCheck2, Trash2, Timer } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -17,6 +17,7 @@ import { getBeijingDateString } from "@/lib/beijing-time";
 import { insertSubtaskLine, insertIntoDailySection, parseTasks } from "@/lib/github";
 import { cascadeToggleAtLine } from "@/lib/cascade";
 import type { DailyTask } from "@/lib/github";
+import { FocusTimer } from "./focus-timer";
 
 interface DailyState {
   exists: boolean;
@@ -70,7 +71,28 @@ export function DailyDashboard({ initialDaily }: DailyDashboardProps = {}) {
   const [subText, setSubText] = useState("");
   const [deleteConfirmFor, setDeleteConfirmFor] = useState<number | null>(null);
   const [deletingTaskId, setDeletingTaskId] = useState<number | null>(null);
+  const [focusTimerTask, setFocusTimerTask] = useState<DailyTask | null>(null);
   const date = getBeijingDateString();
+
+  // ── Check for active timer on mount ─────────────────
+  useEffect(() => {
+    const stored = localStorage.getItem("farm_focus_timer");
+    if (stored && state?.tasks) {
+      try {
+        const timerState = JSON.parse(stored);
+        const activeTask = state.tasks.find((t) => t.id === timerState.taskId);
+        if (activeTask && !activeTask.done) {
+          // Show recovery prompt or badge (for now, just log)
+          console.log("Active timer found for task:", activeTask.displayText);
+        } else {
+          // Task completed or deleted, clear stale timer
+          localStorage.removeItem("farm_focus_timer");
+        }
+      } catch (e) {
+        localStorage.removeItem("farm_focus_timer");
+      }
+    }
+  }, [state?.tasks]);
 
   // ── Conflict Retry Helpers ──────────────────────────
 
@@ -446,6 +468,90 @@ export function DailyDashboard({ initialDaily }: DailyDashboardProps = {}) {
     }
   }
 
+  // ── Complete task with focus duration ───────────────
+  async function handleCompleteWithDuration(task: DailyTask, duration: string) {
+    if (!state?.content || !state.sha || !state.path || !state.tasks) return;
+
+    setActing(true);
+    setError(null);
+
+    try {
+      await withClientRetry(async (freshState) => {
+        // Re-locate the task
+        const freshTasks = freshState.tasks;
+        const taskToComplete =
+          freshTasks.find((t) => t.text === task.text && t.indent === task.indent) ||
+          freshTasks.find((t) => t.id === task.id);
+
+        if (!taskToComplete) {
+          throw new Error("Task not found");
+        }
+
+        // Update task text with duration marker
+        const lines = freshState.content.split("\n");
+        const taskLine = lines[taskToComplete.lineNumber - 1];
+        if (!taskLine) {
+          throw new Error("Task line not found");
+        }
+
+        // Append ⏱️duration before any trailing whitespace
+        const updatedLine = taskLine.replace(/(\s*)$/, ` ⏱️${duration}$1`);
+        lines[taskToComplete.lineNumber - 1] = updatedLine;
+        const contentWithDuration = lines.join("\n");
+
+        // Then toggle to mark as done
+        const updatedContent = cascadeToggleAtLine(contentWithDuration, taskToComplete.lineNumber);
+        if (updatedContent === contentWithDuration) {
+          throw new Error("Failed to toggle task");
+        }
+
+        const newTasks = parseTasks(updatedContent);
+
+        // PUT request
+        const res = await apiFetch("/api/daily", {
+          method: "PUT",
+          body: JSON.stringify({
+            path: state.path,
+            sha: freshState.sha,
+            content: updatedContent,
+          }),
+        });
+
+        const data = await res.json();
+
+        if (!data.ok) {
+          const err = new Error(data.error ?? "Failed to update") as Error & { status?: number };
+          err.status = data.status;
+          throw err;
+        }
+
+        // Success
+        setState({ ...state, content: updatedContent, sha: data.sha, tasks: newTasks });
+
+        // Archive linked inspiration if exists
+        if (taskToComplete.sourceIdeaId) {
+          apiFetch("/api/github", {
+            method: "PUT",
+            body: JSON.stringify({
+              ideaId: taskToComplete.sourceIdeaId,
+              status: "completed",
+            }),
+          })
+            .then(() => {
+              window.dispatchEvent(new CustomEvent("inspiration:updated"));
+            })
+            .catch(() => {});
+        }
+      }, 2);
+    } catch (err) {
+      if (!(err instanceof AuthError)) {
+        setError(isConflictError(err) ? "操作冲突，请刷新重试" : "Network error");
+      }
+    } finally {
+      setActing(false);
+    }
+  }
+
   // ── Render ──────────────────────────────────────────
   if (loading) {
     return (
@@ -607,6 +713,12 @@ export function DailyDashboard({ initialDaily }: DailyDashboardProps = {}) {
                             {task.priority.toUpperCase()}
                           </span>
                         )}
+                        {/* Focus duration badge */}
+                        {task.focusDuration && (
+                          <span className="ml-1.5 align-middle rounded-full bg-[var(--farm-green-soft)] px-2 py-0.5 font-mono text-[10px] font-medium text-[var(--farm-green)]">
+                            ⏱️{task.focusDuration}
+                          </span>
+                        )}
                       </span>
 
                       </button>
@@ -626,6 +738,36 @@ export function DailyDashboard({ initialDaily }: DailyDashboardProps = {}) {
                           title="添加子任务"
                         >
                           <CornerDownRight className="w-4 h-4" />
+                        </button>
+                      )}
+
+                      {/* Timer button — mobile always visible, desktop hover */}
+                      {!task.done && (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            // Check for existing active timer
+                            const stored = localStorage.getItem("farm_focus_timer");
+                            if (stored) {
+                              try {
+                                const timerState = JSON.parse(stored);
+                                if (timerState.taskId !== task.id) {
+                                  alert("请先结束当前正在计时的任务");
+                                  return;
+                                }
+                              } catch (e) {
+                                // Invalid state, clear it
+                                localStorage.removeItem("farm_focus_timer");
+                              }
+                            }
+                            setFocusTimerTask(task);
+                          }}
+                          aria-label={`为「${task.displayText}」开始计时`}
+                          className="mr-1 min-h-10 min-w-10 touch-manipulation rounded-lg p-2 text-[var(--farm-muted)] opacity-60 transition-all hover:bg-[var(--farm-paper-raised)] hover:text-[var(--farm-green)] active:opacity-100 md:opacity-0 md:group-hover/task:opacity-100 md:focus-visible:opacity-100"
+                          title="开始计时"
+                        >
+                          <Timer className="h-4 w-4" />
                         </button>
                       )}
 
@@ -775,6 +917,20 @@ export function DailyDashboard({ initialDaily }: DailyDashboardProps = {}) {
           />
         </div>
       </CardContent>
+
+      {/* Focus Timer Modal */}
+      {focusTimerTask && (
+        <FocusTimer
+          task={focusTimerTask}
+          onComplete={(duration) => {
+            handleCompleteWithDuration(focusTimerTask, duration);
+            setFocusTimerTask(null);
+          }}
+          onAbort={() => {
+            setFocusTimerTask(null);
+          }}
+        />
+      )}
     </Card>
   );
 }

@@ -56,6 +56,7 @@ export interface DailyTask {
   indent: string;
   lineNumber: number;
   priority: string; // p0 | p1 | p2 | p3, default "p2"
+  focusDuration: string | null; // extracted from ⏱️XhYYm marker, null if absent
 }
 
 export interface DailyNote {
@@ -215,6 +216,14 @@ export function parseTasks(markdown: string): DailyTask[] {
         rawText = rawText.slice(0, priorityMatch.index).trim();
       }
 
+      // Extract focus duration marker (⏱️XhYYm or ⏱️Xh or ⏱️Ym)
+      let focusDuration: string | null = null;
+      const durationMatch = rawText.match(/\s+⏱️(\d+h(?:\d{2}m)?|\d+m)$/);
+      if (durationMatch) {
+        focusDuration = durationMatch[1];
+        rawText = rawText.slice(0, durationMatch.index).trim();
+      }
+
       // Parse [[timestamp|alias]] double-bracket link
       const linkMatch = rawText.match(LINK_RE);
       const sourceIdeaId = linkMatch ? linkMatch[1] : null;
@@ -226,13 +235,14 @@ export function parseTasks(markdown: string): DailyTask[] {
         id: id++,
         parentId: null,
         done: match[2].toLowerCase() === "x",
-        text: match[3].trim(), // Keep original text with priority tag
+        text: match[3].trim(), // Keep original text with priority tag and duration
         displayText,
         sourceIdeaId,
         indentLevel: level,
         indent: raw,
         lineNumber: lineNum,
         priority,
+        focusDuration,
       });
     }
   }
