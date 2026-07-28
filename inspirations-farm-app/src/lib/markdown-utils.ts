@@ -59,6 +59,13 @@ export interface DailyTask {
   focusDuration: string | null; // extracted from ⏱️XhYYm marker, null if absent
 }
 
+export interface DailyTaskLocator {
+  lineNumber: number;
+  text: string;
+  indent: string;
+  parentText: string | null;
+}
+
 export interface DailyNote {
   time: string; // HH:mm
   text: string;
@@ -206,23 +213,8 @@ export function parseTasks(markdown: string): DailyTask[] {
     const match = line.match(/^(\s*)[-+*]\s*\[([ xX>])\]\s+(.*)$/);
     if (match) {
       const { level, raw } = calcIndent(match[1]);
-      let rawText = match[3].trim();
-
-      // Extract priority tag (#p0, #p1, #p2, #p3) from end of line
-      let priority = "p2"; // default
-      const priorityMatch = rawText.match(/\s+#(p[0-3])$/);
-      if (priorityMatch) {
-        priority = priorityMatch[1];
-        rawText = rawText.slice(0, priorityMatch.index).trim();
-      }
-
-      // Extract focus duration marker (⏱️XhYYm or ⏱️Xh or ⏱️Ym)
-      let focusDuration: string | null = null;
-      const durationMatch = rawText.match(/\s+⏱️(\d+h(?:\d{2}m)?|\d+m)$/);
-      if (durationMatch) {
-        focusDuration = durationMatch[1];
-        rawText = rawText.slice(0, durationMatch.index).trim();
-      }
+      const metadata = parseTaskMetadata(match[3]);
+      const rawText = metadata.content;
 
       // Parse [[timestamp|alias]] double-bracket link
       const linkMatch = rawText.match(LINK_RE);
@@ -241,12 +233,135 @@ export function parseTasks(markdown: string): DailyTask[] {
         indentLevel: level,
         indent: raw,
         lineNumber: lineNum,
-        priority,
-        focusDuration,
+        priority: metadata.priority,
+        focusDuration: metadata.focusDuration,
       });
     }
   }
   return inheritPriority(computeParents(tasks));
+}
+
+interface TaskMetadata {
+  content: string;
+  priority: string;
+  priorityTag: string | null;
+  focusDuration: string | null;
+}
+
+/** Parse supported trailing task metadata in either legacy order. */
+function parseTaskMetadata(text: string): TaskMetadata {
+  let content = text.trim();
+  let priorityTag: string | null = null;
+  let focusDuration: string | null = null;
+
+  // Repeating the scan lets both "#p1 ⏱️25m" and "⏱️25m #p1"
+  // round-trip while serialization below always emits one canonical order.
+  for (let i = 0; i < 2; i++) {
+    const priorityMatch: RegExpMatchArray | null = priorityTag
+      ? null
+      : content.match(/\s+#(p[0-3])$/i);
+    if (priorityMatch) {
+      priorityTag = `#${priorityMatch[1].toLowerCase()}`;
+      content = content.slice(0, priorityMatch.index).trim();
+      continue;
+    }
+
+    const durationMatch: RegExpMatchArray | null = focusDuration
+      ? null
+      : content.match(/\s+⏱️(\d+h(?:\d{1,2}m)?|\d+m)$/);
+    if (durationMatch) {
+      focusDuration = durationMatch[1];
+      content = content.slice(0, durationMatch.index).trim();
+    }
+  }
+
+  return {
+    content,
+    priority: priorityTag?.slice(1) ?? "p2",
+    priorityTag,
+    focusDuration,
+  };
+}
+
+/** Write or replace a task's focus duration without changing adjacent lines. */
+export function setTaskFocusDurationAtLine(
+  content: string,
+  lineIndex: number,
+  duration: string
+): string {
+  if (!/^(?:\d+h(?:\d{1,2}m)?|\d+m)$/.test(duration)) return content;
+
+  const lines = content.split("\n");
+  const line = lines[lineIndex];
+  if (!line) return content;
+
+  const match = line.match(/^(\s*[-+*]\s*\[[ xX>]\]\s+)(.*?)(\s*)$/);
+  if (!match) return content;
+
+  const metadata = parseTaskMetadata(match[2]);
+  const prioritySuffix = metadata.priorityTag ? ` ${metadata.priorityTag}` : "";
+  lines[lineIndex] = `${match[1]}${metadata.content} ⏱️${duration}${prioritySuffix}${match[3]}`;
+  return lines.join("\n");
+}
+
+/** Build a locator that remains useful when line numbers shift after edits. */
+export function createTaskLocator(
+  task: DailyTask,
+  tasks: DailyTask[]
+): DailyTaskLocator {
+  const parent = task.parentId === null
+    ? null
+    : tasks.find((candidate) => candidate.id === task.parentId);
+
+  return {
+    lineNumber: task.lineNumber,
+    text: parseTaskMetadata(task.text).content,
+    indent: task.indent,
+    parentText: parent ? parseTaskMetadata(parent.text).content : null,
+  };
+}
+
+/** Resolve an exact locator first, then the nearest matching task after edits. */
+export function locateTask(
+  tasks: DailyTask[],
+  locator: DailyTaskLocator
+): DailyTask | undefined {
+  const byId = new Map(tasks.map((task) => [task.id, task]));
+  const locatorText = parseTaskMetadata(locator.text).content;
+  const locatorParentText = locator.parentText === null
+    ? null
+    : parseTaskMetadata(locator.parentText).content;
+  const matchesParent = (task: DailyTask) => {
+    if (locatorParentText === null) return task.parentId === null;
+    const parent = task.parentId === null ? undefined : byId.get(task.parentId);
+    return parent
+      ? parseTaskMetadata(parent.text).content === locatorParentText
+      : false;
+  };
+  const matchesText = (task: DailyTask) =>
+    parseTaskMetadata(task.text).content === locatorText;
+
+  const exactLine = tasks.find(
+    (task) =>
+      task.lineNumber === locator.lineNumber &&
+      matchesText(task) &&
+      task.indent === locator.indent &&
+      matchesParent(task)
+  );
+  if (exactLine) return exactLine;
+
+  return tasks
+    .filter(
+      (task) =>
+        matchesText(task) &&
+        task.indent === locator.indent &&
+        matchesParent(task)
+    )
+    .sort(
+      (a, b) =>
+        Math.abs(a.lineNumber - locator.lineNumber) -
+        Math.abs(b.lineNumber - locator.lineNumber)
+    )[0];
 }
 
 /** Assign parentId to each task based on indentLevel */
@@ -273,7 +388,7 @@ function inheritPriority(tasks: DailyTask[]): DailyTask[] {
     if (task.parentId !== null) {
       const parent = taskMap.get(task.parentId);
       // Inherit if subtask has default p2 and no explicit #p tag in text
-      if (parent && task.priority === "p2" && !task.text.match(/#p[0-3]$/)) {
+      if (parent && task.priority === "p2" && !parseTaskMetadata(task.text).priorityTag) {
         task.priority = parent.priority;
       }
     }

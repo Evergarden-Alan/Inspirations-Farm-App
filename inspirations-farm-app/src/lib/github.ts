@@ -46,6 +46,9 @@ export {
   stripHeading,
   parseInspirationPatches,
   parseTasks,
+  createTaskLocator,
+  locateTask,
+  setTaskFocusDurationAtLine,
   computeParents,
   parseDailyNotes,
   insertSubtaskLine,
@@ -55,6 +58,7 @@ export {
   type ParsedMarkdown,
   type InspirationPatch,
   type DailyTask,
+  type DailyTaskLocator,
   type DailyNote,
 } from "./markdown-utils";
 

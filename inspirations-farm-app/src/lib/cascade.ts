@@ -11,7 +11,7 @@ const TASK_RE = /^(\s*)[-+*]\s*\[([ xX>])\]\s+(.*)$/;
 
 /** Leading indent + bullet (-, *, or +) + checkbox state. Captures the bullet
  *  so toggle/set can preserve it instead of forcing "-". */
-const CHECKBOX_PREFIX_RE = /^(\s*)([-+*])\s*\[([ xX])\]/;
+const CHECKBOX_PREFIX_RE = /^(\s*)([-+*])\s*\[([ xX>])\]/;
 
 /** A task line whose checkbox is done ([x] or [X]), any bullet. */
 const DONE_TASK_RE = /^(\s*)[-+*]\s*\[[xX]\]/;
@@ -27,21 +27,12 @@ function countIndent(line: string): number {
   return n;
 }
 
-/** Flip a checkbox: [ ] ↔ [x], preserving the bullet (-, *, or +). */
-function toggleCheckbox(line: string): string {
-  const m = line.match(CHECKBOX_PREFIX_RE);
-  if (!m) return line;
-  const [, indent, bullet, state] = m;
-  const newMark = state === " " ? "x" : " ";
-  return `${indent}${bullet} [${newMark}]${line.slice(m[0].length)}`;
-}
-
 /** Set a checkbox to a specific state ([x] or [ ]), preserving the bullet. */
 function setCheckbox(line: string, done: boolean): string {
   const m = line.match(CHECKBOX_PREFIX_RE);
   if (!m) return line;
   const [, indent, bullet, state] = m;
-  if (done === (state !== " ")) return line; // already in the desired state
+  if (done === (state.toLowerCase() === "x")) return line;
   const newMark = done ? "x" : " ";
   return `${indent}${bullet} [${newMark}]${line.slice(m[0].length)}`;
 }
@@ -58,17 +49,30 @@ export function cascadeToggleAtLine(
   content: string,
   lineIndex: number
 ): string {
+  const targetLine = content.split("\n")[lineIndex];
+  if (!targetLine || !TASK_RE.test(targetLine)) return content;
+
+  return cascadeSetAtLine(content, lineIndex, !DONE_TASK_RE.test(targetLine));
+}
+
+/** Set a task and its descendants to a specific state, then recompute parents. */
+export function cascadeSetAtLine(
+  content: string,
+  lineIndex: number,
+  done: boolean
+): string {
   const lines = content.split("\n");
   const targetLine = lines[lineIndex];
+  if (!targetLine || !TASK_RE.test(targetLine)) return content;
+
   const targetIndent = countIndent(targetLine);
-  const targetWasDone = DONE_TASK_RE.test(targetLine);
 
   // Build a set of line numbers inside fenced code blocks to skip them
   const codeLines = collectCodeLines(parseMarkdownAst(content));
+  if (codeLines.has(lineIndex + 1)) return content;
 
-  // 1) Toggle the clicked line
-  lines[lineIndex] = toggleCheckbox(targetLine);
-  const newDone = !targetWasDone;
+  // 1) Set the selected line to the requested state.
+  lines[lineIndex] = setCheckbox(targetLine, done);
 
   // 2) Downward cascade — sync all deeper descendants
   for (let i = lineIndex + 1; i < lines.length; i++) {
@@ -83,7 +87,7 @@ export function cascadeToggleAtLine(
 
     const taskMatch = line.match(TASK_RE);
     if (taskMatch) {
-      lines[i] = setCheckbox(line, newDone);
+      lines[i] = setCheckbox(line, done);
     }
     // Non-task lines between siblings (blank already skipped) → skip
   }
@@ -171,7 +175,7 @@ function recomputeAncestors(
       const descMatch = descLine.match(TASK_RE);
       if (descMatch) {
         hasDescendants = true;
-        if (descMatch[2] === " ") {
+        if (descMatch[2].toLowerCase() !== "x") {
           allDone = false;
         }
       }

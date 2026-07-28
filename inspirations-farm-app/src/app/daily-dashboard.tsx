@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
-import { Plus, Loader2, Circle, CheckCircle2, CornerDownRight, Check, CalendarCheck2, Trash2, Timer } from "lucide-react";
+import { useEffect, useState, useCallback, useRef } from "react";
+import { Plus, Loader2, Circle, CheckCircle2, CornerDownRight, Check, CalendarCheck2, Trash2, Timer, MoreHorizontal } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -14,10 +14,25 @@ import { Input } from "@/components/ui/input";
 import { PriorityPicker, type Priority } from "@/components/priority-picker";
 import { apiFetch, AuthError } from "@/lib/api";
 import { getBeijingDateString } from "@/lib/beijing-time";
-import { insertSubtaskLine, insertIntoDailySection, parseTasks } from "@/lib/github";
-import { cascadeToggleAtLine } from "@/lib/cascade";
-import type { DailyTask } from "@/lib/github";
+import {
+  createTaskLocator,
+  insertSubtaskLine,
+  insertIntoDailySection,
+  locateTask,
+  parseTasks,
+  setTaskFocusDurationAtLine,
+} from "@/lib/github";
+import { cascadeSetAtLine, cascadeToggleAtLine } from "@/lib/cascade";
+import type { DailyTask, DailyTaskLocator } from "@/lib/github";
+import {
+  clearFocusTimerState,
+  createFocusTimerState,
+  readFocusTimerState,
+  saveFocusTimerState,
+  type FocusTimerState,
+} from "@/lib/focus-timer-state";
 import { FocusTimer } from "./focus-timer";
+import { toast } from "./toast";
 
 interface DailyState {
   exists: boolean;
@@ -35,6 +50,11 @@ interface DailyDashboardProps {
     content?: string;
     tasks?: DailyTask[];
   };
+}
+
+interface FocusSession {
+  task: DailyTask;
+  timer: FocusTimerState;
 }
 
 function getTaskSubtreeSize(tasks: DailyTask[], index: number): number {
@@ -71,28 +91,37 @@ export function DailyDashboard({ initialDaily }: DailyDashboardProps = {}) {
   const [subText, setSubText] = useState("");
   const [deleteConfirmFor, setDeleteConfirmFor] = useState<number | null>(null);
   const [deletingTaskId, setDeletingTaskId] = useState<number | null>(null);
-  const [focusTimerTask, setFocusTimerTask] = useState<DailyTask | null>(null);
+  const [taskMenuFor, setTaskMenuFor] = useState<number | null>(null);
+  const [focusSession, setFocusSession] = useState<FocusSession | null>(null);
+  const [focusTimerOpen, setFocusTimerOpen] = useState(false);
+  const recoveryCheckedRef = useRef(false);
   const date = getBeijingDateString();
 
   // ── Check for active timer on mount ─────────────────
   useEffect(() => {
-    const stored = localStorage.getItem("farm_focus_timer");
-    if (stored && state?.tasks) {
-      try {
-        const timerState = JSON.parse(stored);
-        const activeTask = state.tasks.find((t) => t.id === timerState.taskId);
-        if (activeTask && !activeTask.done) {
-          // Show recovery prompt or badge (for now, just log)
-          console.log("Active timer found for task:", activeTask.displayText);
-        } else {
-          // Task completed or deleted, clear stale timer
-          localStorage.removeItem("farm_focus_timer");
-        }
-      } catch (e) {
-        localStorage.removeItem("farm_focus_timer");
-      }
+    if (recoveryCheckedRef.current || !state?.tasks || !state.path) return;
+    recoveryCheckedRef.current = true;
+
+    const stored = readFocusTimerState();
+    if (!stored) return;
+
+    if (stored.date !== date || stored.path !== state.path) {
+      clearFocusTimerState();
+      return;
     }
-  }, [state?.tasks]);
+
+    const activeTask = locateTask(state.tasks, stored.task);
+    if (!activeTask || activeTask.done) {
+      clearFocusTimerState();
+      return;
+    }
+
+    const recoveryTimer = setTimeout(() => {
+      setFocusSession({ task: activeTask, timer: stored });
+      setFocusTimerOpen(true);
+    }, 0);
+    return () => clearTimeout(recoveryTimer);
+  }, [date, state?.path, state?.tasks]);
 
   // ── Conflict Retry Helpers ──────────────────────────
 
@@ -219,6 +248,14 @@ export function DailyDashboard({ initialDaily }: DailyDashboardProps = {}) {
 
     const originalTask = state.tasks[index];
     const oldTasks = state.tasks;
+    const runningTask = focusSession
+      ? locateTask(state.tasks, focusSession.timer.task)
+      : undefined;
+    if (runningTask?.id === originalTask.id) {
+      setFocusTimerOpen(true);
+      toast.info("该任务正在计时，请在专注模式中完成或中止");
+      return;
+    }
 
     setActing(true);
     setError(null);
@@ -253,7 +290,7 @@ export function DailyDashboard({ initialDaily }: DailyDashboardProps = {}) {
 
         if (!data.ok) {
           const err = new Error(data.error ?? "Failed to update") as Error & { status?: number };
-          err.status = data.status;
+          err.status = res.status;
           throw err;
         }
 
@@ -322,7 +359,7 @@ export function DailyDashboard({ initialDaily }: DailyDashboardProps = {}) {
 
         if (!data.ok) {
           const err = new Error(data.error ?? "Failed to add task") as Error & { status?: number };
-          err.status = data.status;
+          err.status = res.status;
           throw err;
         }
 
@@ -372,7 +409,7 @@ export function DailyDashboard({ initialDaily }: DailyDashboardProps = {}) {
 
         if (!data.ok) {
           const err = new Error(data.error ?? "Failed to add subtask") as Error & { status?: number };
-          err.status = data.status;
+          err.status = res.status;
           throw err;
         }
 
@@ -398,6 +435,29 @@ export function DailyDashboard({ initialDaily }: DailyDashboardProps = {}) {
   // ── Delete task subtree ─────────────────────────────
   async function handleDeleteTask(task: DailyTask) {
     if (!state?.tasks) return;
+
+    const runningTask = focusSession
+      ? locateTask(state.tasks, focusSession.timer.task)
+      : undefined;
+    const taskIndex = state.tasks.findIndex((candidate) => candidate.id === task.id);
+    const runningTaskIndex = runningTask
+      ? state.tasks.findIndex((candidate) => candidate.id === runningTask.id)
+      : -1;
+    const subtreeEnd = taskIndex >= 0
+      ? taskIndex + getTaskSubtreeSize(state.tasks, taskIndex)
+      : taskIndex;
+
+    if (
+      taskIndex >= 0 &&
+      runningTaskIndex >= taskIndex &&
+      runningTaskIndex < subtreeEnd
+    ) {
+      setDeleteConfirmFor(null);
+      setTaskMenuFor(null);
+      setFocusTimerOpen(true);
+      toast.info("正在计时的任务不能删除，请先完成或中止计时");
+      return;
+    }
 
     const parent =
       task.parentId === null
@@ -444,7 +504,7 @@ export function DailyDashboard({ initialDaily }: DailyDashboardProps = {}) {
         await fetchJournal();
       }
 
-      // Mobile and desktop layouts keep separate dashboard instances mounted.
+      // Keep other consumers of the daily journal synchronized.
       window.dispatchEvent(new CustomEvent("daily:updated"));
     } catch (err) {
       if (!(err instanceof AuthError)) {
@@ -469,43 +529,81 @@ export function DailyDashboard({ initialDaily }: DailyDashboardProps = {}) {
   }
 
   // ── Complete task with focus duration ───────────────
-  async function handleCompleteWithDuration(task: DailyTask, duration: string) {
-    if (!state?.content || !state.sha || !state.path || !state.tasks) return;
+  function handleOpenFocusTimer(task: DailyTask) {
+    if (!state?.path || !state.tasks) return;
+    setError(null);
+
+    let stored = readFocusTimerState();
+    if (stored && (stored.date !== date || stored.path !== state.path)) {
+      clearFocusTimerState();
+      stored = null;
+    }
+
+    if (stored) {
+      const activeTask = locateTask(state.tasks, stored.task);
+      if (activeTask && !activeTask.done) {
+        if (activeTask.id !== task.id) {
+          toast.info(`「${activeTask.displayText}」正在计时，请先结束或中止`);
+          return;
+        }
+
+        setFocusSession({ task: activeTask, timer: stored });
+        setFocusTimerOpen(true);
+        return;
+      }
+      clearFocusTimerState();
+    }
+
+    const timer = createFocusTimerState({
+      date,
+      path: state.path,
+      task: createTaskLocator(task, state.tasks),
+    });
+    saveFocusTimerState(timer);
+    setFocusSession({ task, timer });
+    setFocusTimerOpen(true);
+  }
+
+  async function handleCompleteWithDuration(
+    taskLocator: DailyTaskLocator,
+    duration: string
+  ): Promise<boolean> {
+    if (!state?.content || !state.sha || !state.path || !state.tasks) return false;
 
     setActing(true);
     setError(null);
 
     try {
       await withClientRetry(async (freshState) => {
-        // Re-locate the task
-        const freshTasks = freshState.tasks;
-        const taskToComplete =
-          freshTasks.find((t) => t.text === task.text && t.indent === task.indent) ||
-          freshTasks.find((t) => t.id === task.id);
+        const taskToComplete = locateTask(freshState.tasks, taskLocator);
 
         if (!taskToComplete) {
           throw new Error("Task not found");
         }
 
-        // Update task text with duration marker
-        const lines = freshState.content.split("\n");
-        const taskLine = lines[taskToComplete.lineNumber - 1];
-        if (!taskLine) {
-          throw new Error("Task line not found");
-        }
+        const contentWithDuration = setTaskFocusDurationAtLine(
+          freshState.content,
+          taskToComplete.lineNumber,
+          duration
+        );
 
-        // Append ⏱️duration before any trailing whitespace
-        const updatedLine = taskLine.replace(/(\s*)$/, ` ⏱️${duration}$1`);
-        lines[taskToComplete.lineNumber - 1] = updatedLine;
-        const contentWithDuration = lines.join("\n");
-
-        // Then toggle to mark as done
-        const updatedContent = cascadeToggleAtLine(contentWithDuration, taskToComplete.lineNumber);
-        if (updatedContent === contentWithDuration) {
-          throw new Error("Failed to toggle task");
-        }
+        // Never toggle here: another client may have completed the task already.
+        const updatedContent = cascadeSetAtLine(
+          contentWithDuration,
+          taskToComplete.lineNumber,
+          true
+        );
 
         const newTasks = parseTasks(updatedContent);
+        if (updatedContent === freshState.content) {
+          setState({
+            ...state,
+            content: freshState.content,
+            sha: freshState.sha,
+            tasks: freshState.tasks,
+          });
+          return;
+        }
 
         // PUT request
         const res = await apiFetch("/api/daily", {
@@ -521,7 +619,7 @@ export function DailyDashboard({ initialDaily }: DailyDashboardProps = {}) {
 
         if (!data.ok) {
           const err = new Error(data.error ?? "Failed to update") as Error & { status?: number };
-          err.status = data.status;
+          err.status = res.status;
           throw err;
         }
 
@@ -543,10 +641,13 @@ export function DailyDashboard({ initialDaily }: DailyDashboardProps = {}) {
             .catch(() => {});
         }
       }, 2);
+      toast.success(`任务已完成 · 专注 ${duration}`);
+      return true;
     } catch (err) {
       if (!(err instanceof AuthError)) {
-        setError(isConflictError(err) ? "操作冲突，请刷新重试" : "Network error");
+        setError(isConflictError(err) ? "操作冲突，请重试保存" : "计时结果保存失败，请重试");
       }
+      return false;
     } finally {
       setActing(false);
     }
@@ -586,6 +687,9 @@ export function DailyDashboard({ initialDaily }: DailyDashboardProps = {}) {
 
   const doneCount = state.tasks?.filter((t) => t.done).length ?? 0;
   const totalCount = state.tasks?.length ?? 0;
+  const activeFocusTask = focusSession && state.tasks
+    ? locateTask(state.tasks, focusSession.timer.task)
+    : undefined;
 
   return (
     <Card className="farm-panel">
@@ -635,6 +739,7 @@ export function DailyDashboard({ initialDaily }: DailyDashboardProps = {}) {
               const isRollover = task.displayText.includes("🔄");
               const cleanText = task.displayText.replace(/🔄/g, "").trim();
               const childCount = getTaskSubtreeSize(state.tasks!, i) - 1;
+              const isFocusActive = activeFocusTask?.id === task.id;
 
               return (
                 <li key={task.id}>
@@ -663,37 +768,39 @@ export function DailyDashboard({ initialDaily }: DailyDashboardProps = {}) {
                           <Circle className={`${iconSize} text-[var(--farm-line)]`} />
                         )}
                       </motion.div>
-                      <span
-                        className={`text-base leading-relaxed transition-all duration-200 min-w-0 ${
-                          task.done
-                            ? "text-[var(--farm-faint)] line-through"
-                            : isSub
-                              ? "text-[var(--farm-text)]"
-                              : "text-[var(--farm-ink)]"
-                        }`}
-                      >
-                        <ReactMarkdown
-                          remarkPlugins={[remarkGfm, remarkMath]}
-                          rehypePlugins={[
-                            rehypeSanitize,
-                            [rehypeKatex, { strict: false, throwOnError: false, output: "html" }],
-                          ]}
-                          components={{
-                            p: ({ ...props}) => (
-                              <span className="inline" {...props} />
-                            ),
-                            a: ({ ...props}) => (
-                              <a
-                                className="text-[var(--farm-green)] underline-offset-2 hover:underline"
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                {...props}
-                              />
-                            ),
-                          }}
+                      <span className="min-w-0 flex-1 text-base leading-relaxed">
+                        <span
+                          className={`transition-all duration-200 ${
+                            task.done
+                              ? "text-[var(--farm-faint)] line-through"
+                              : isSub
+                                ? "text-[var(--farm-text)]"
+                                : "text-[var(--farm-ink)]"
+                          }`}
                         >
-                          {cleanText.replace(/^- \[[x ]\] /, "")}
-                        </ReactMarkdown>
+                          <ReactMarkdown
+                            remarkPlugins={[remarkGfm, remarkMath]}
+                            rehypePlugins={[
+                              rehypeSanitize,
+                              [rehypeKatex, { strict: false, throwOnError: false, output: "html" }],
+                            ]}
+                            components={{
+                              p: ({ ...props}) => (
+                                <span className="inline" {...props} />
+                              ),
+                              a: ({ ...props}) => (
+                                <a
+                                  className="text-[var(--farm-green)] underline-offset-2 hover:underline"
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  {...props}
+                                />
+                              ),
+                            }}
+                          >
+                            {cleanText.replace(/^- \[[x ]\] /, "")}
+                          </ReactMarkdown>
+                        </span>
                         {task.sourceIdeaId && (
                           <span className="ml-1.5 align-middle font-mono text-[10px] text-[var(--farm-muted)]">
                             #{task.sourceIdeaId.slice(-6)}
@@ -723,7 +830,7 @@ export function DailyDashboard({ initialDaily }: DailyDashboardProps = {}) {
 
                       </button>
 
-                      {/* Add sub-task button — mobile always visible, desktop hover */}
+                      {/* Desktop actions stay compact until the row is hovered. */}
                       {task.indentLevel < 4 && (
                         <button
                           type="button"
@@ -732,46 +839,37 @@ export function DailyDashboard({ initialDaily }: DailyDashboardProps = {}) {
                             setAddSubFor(task.id);
                             setSubText("");
                             setDeleteConfirmFor(null);
+                            setTaskMenuFor(null);
                           }}
                           aria-label={`为「${task.displayText}」添加子任务`}
-                          className="mr-1 ml-auto min-h-10 min-w-10 touch-manipulation rounded-lg p-2 text-[var(--farm-muted)] opacity-60 transition-all hover:bg-[var(--farm-paper-raised)] hover:text-[var(--farm-green)] active:opacity-100 md:opacity-0 md:group-hover/task:opacity-100 md:focus-visible:opacity-100"
+                          className="mr-1 ml-auto hidden min-h-10 min-w-10 touch-manipulation rounded-lg p-2 text-[var(--farm-muted)] opacity-0 transition-all hover:bg-[var(--farm-paper-raised)] hover:text-[var(--farm-green)] group-hover/task:opacity-100 focus-visible:opacity-100 lg:block"
                           title="添加子任务"
                         >
                           <CornerDownRight className="w-4 h-4" />
                         </button>
                       )}
 
-                      {/* Timer button — mobile always visible, desktop hover */}
+                      {/* Timer remains directly reachable on touch layouts. */}
                       {!task.done && (
                         <button
                           type="button"
                           onClick={(e) => {
                             e.stopPropagation();
-                            // Check for existing active timer
-                            const stored = localStorage.getItem("farm_focus_timer");
-                            if (stored) {
-                              try {
-                                const timerState = JSON.parse(stored);
-                                if (timerState.taskId !== task.id) {
-                                  alert("请先结束当前正在计时的任务");
-                                  return;
-                                }
-                              } catch (e) {
-                                // Invalid state, clear it
-                                localStorage.removeItem("farm_focus_timer");
-                              }
-                            }
-                            setFocusTimerTask(task);
+                            handleOpenFocusTimer(task);
                           }}
-                          aria-label={`为「${task.displayText}」开始计时`}
-                          className="mr-1 min-h-10 min-w-10 touch-manipulation rounded-lg p-2 text-[var(--farm-muted)] opacity-60 transition-all hover:bg-[var(--farm-paper-raised)] hover:text-[var(--farm-green)] active:opacity-100 md:opacity-0 md:group-hover/task:opacity-100 md:focus-visible:opacity-100"
-                          title="开始计时"
+                          aria-label={isFocusActive ? `继续「${task.displayText}」的计时` : `为「${task.displayText}」开始计时`}
+                          className={`mr-1 ml-auto min-h-11 min-w-11 touch-manipulation rounded-lg p-2 transition-all hover:bg-[var(--farm-paper-raised)] hover:text-[var(--farm-green)] lg:ml-0 lg:min-h-10 lg:min-w-10 lg:opacity-0 lg:group-hover/task:opacity-100 lg:focus-visible:opacity-100 ${
+                            isFocusActive
+                              ? "bg-[var(--farm-green-soft)] text-[var(--farm-green)] opacity-100"
+                              : "text-[var(--farm-muted)] opacity-65"
+                          }`}
+                          title={isFocusActive ? "继续计时" : "开始计时"}
                         >
-                          <Timer className="h-4 w-4" />
+                          <Timer className={`h-4 w-4 ${isFocusActive ? "animate-pulse" : ""}`} />
                         </button>
                       )}
 
-                      {/* Delete action — mobile always visible, desktop hover */}
+                      {/* Delete action — desktop only; mobile uses the overflow menu. */}
                       <button
                         type="button"
                         onClick={(e) => {
@@ -779,17 +877,75 @@ export function DailyDashboard({ initialDaily }: DailyDashboardProps = {}) {
                           setDeleteConfirmFor((current) => current === task.id ? null : task.id);
                           setAddSubFor(null);
                           setSubText("");
+                          setTaskMenuFor(null);
                         }}
                         disabled={acting}
                         aria-label={`删除「${task.displayText}」`}
                         aria-expanded={deleteConfirmFor === task.id}
                         aria-controls={`delete-task-${task.id}`}
-                        className="mr-1 min-h-10 min-w-10 touch-manipulation rounded-lg p-2 text-[var(--farm-muted)] opacity-60 transition-all hover:bg-[var(--farm-danger-bg)] hover:text-[var(--farm-danger)] active:opacity-100 disabled:opacity-30 md:opacity-0 md:group-hover/task:opacity-100 md:focus-visible:opacity-100"
+                        className="mr-1 hidden min-h-10 min-w-10 touch-manipulation rounded-lg p-2 text-[var(--farm-muted)] opacity-0 transition-all hover:bg-[var(--farm-danger-bg)] hover:text-[var(--farm-danger)] disabled:opacity-30 group-hover/task:opacity-100 focus-visible:opacity-100 lg:block"
                         title="删除任务"
                       >
                         <Trash2 className="h-4 w-4" />
                       </button>
+
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          setTaskMenuFor((current) => current === task.id ? null : task.id);
+                        }}
+                        aria-label={`「${task.displayText}」的更多操作`}
+                        aria-expanded={taskMenuFor === task.id}
+                        aria-controls={`task-menu-${task.id}`}
+                        className="mr-1 flex min-h-11 min-w-11 items-center justify-center rounded-lg text-[var(--farm-muted)] transition-colors hover:bg-[var(--farm-paper-raised)] hover:text-[var(--farm-ink)] lg:hidden"
+                      >
+                        <MoreHorizontal className="h-4 w-4" />
+                      </button>
                     </div>
+
+                    <AnimatePresence>
+                      {taskMenuFor === task.id && (
+                        <motion.div
+                          id={`task-menu-${task.id}`}
+                          initial={{ opacity: 0, height: 0 }}
+                          animate={{ opacity: 1, height: "auto" }}
+                          exit={{ opacity: 0, height: 0 }}
+                          className="overflow-hidden lg:hidden"
+                        >
+                          <div className="mx-2 mb-2 flex items-center justify-end gap-2 rounded-xl border border-[var(--farm-line)] bg-[var(--farm-paper-deep)]/65 p-2">
+                            {task.indentLevel < 4 && (
+                              <button
+                                type="button"
+                                className="flex min-h-11 items-center gap-2 rounded-lg px-3 text-sm text-[var(--farm-text)] hover:bg-[var(--farm-paper-raised)]"
+                                onClick={() => {
+                                  setAddSubFor(task.id);
+                                  setSubText("");
+                                  setDeleteConfirmFor(null);
+                                  setTaskMenuFor(null);
+                                }}
+                              >
+                                <CornerDownRight className="h-4 w-4" />
+                                添加子任务
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              className="flex min-h-11 items-center gap-2 rounded-lg px-3 text-sm text-[var(--farm-danger)] hover:bg-[var(--farm-danger-bg)]"
+                              onClick={() => {
+                                setDeleteConfirmFor(task.id);
+                                setAddSubFor(null);
+                                setSubText("");
+                                setTaskMenuFor(null);
+                              }}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                              删除任务
+                            </button>
+                          </div>
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
 
                     {/* Destructive actions require a second, explicit click. */}
                     <AnimatePresence>
@@ -919,18 +1075,28 @@ export function DailyDashboard({ initialDaily }: DailyDashboardProps = {}) {
       </CardContent>
 
       {/* Focus Timer Modal */}
-      {focusTimerTask && (
-        <FocusTimer
-          task={focusTimerTask}
-          onComplete={(duration) => {
-            handleCompleteWithDuration(focusTimerTask, duration);
-            setFocusTimerTask(null);
-          }}
-          onAbort={() => {
-            setFocusTimerTask(null);
-          }}
-        />
-      )}
+      <AnimatePresence>
+        {focusTimerOpen && focusSession && (
+          <FocusTimer
+            key={`${focusSession.timer.path}:${focusSession.timer.task.lineNumber}`}
+            task={focusSession.task}
+            initialState={focusSession.timer}
+            onComplete={(duration) =>
+              handleCompleteWithDuration(focusSession.timer.task, duration)
+            }
+            onFinished={() => {
+              setFocusTimerOpen(false);
+              setFocusSession(null);
+            }}
+            onClose={() => setFocusTimerOpen(false)}
+            onAbort={() => {
+              setError(null);
+              setFocusTimerOpen(false);
+              setFocusSession(null);
+            }}
+          />
+        )}
+      </AnimatePresence>
     </Card>
   );
 }

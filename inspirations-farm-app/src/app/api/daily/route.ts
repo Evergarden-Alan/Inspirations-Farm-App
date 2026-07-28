@@ -9,8 +9,10 @@ import {
   insertIntoDailyNotesSection,
   loadDiaryTemplate,
   parseTasks,
+  locateTask,
   stripStalePlaceholder,
-  type DailyTask,
+  GitHubConflictError,
+  type DailyTaskLocator,
 } from "@/lib/github";
 import { validatePin } from "@/lib/auth";
 import { getBeijingDateTimeString } from "@/lib/beijing-time";
@@ -18,44 +20,6 @@ import { deleteTaskSubtreeAtLine } from "@/lib/cascade";
 
 function deny() {
   return Response.json({ ok: false, error: "Unauthorized" }, { status: 401 });
-}
-
-interface TaskLocator {
-  lineNumber: number;
-  text: string;
-  indent: string;
-  parentText: string | null;
-}
-
-function locateTask(tasks: DailyTask[], locator: TaskLocator): DailyTask | undefined {
-  const byId = new Map(tasks.map((task) => [task.id, task]));
-  const matchesParent = (task: DailyTask) => {
-    if (locator.parentText === null) return task.parentId === null;
-    const parent = task.parentId === null ? undefined : byId.get(task.parentId);
-    return parent?.text === locator.parentText;
-  };
-
-  const exactLine = tasks.find(
-    (task) =>
-      task.lineNumber === locator.lineNumber &&
-      task.text === locator.text &&
-      task.indent === locator.indent &&
-      matchesParent(task)
-  );
-  if (exactLine) return exactLine;
-
-  return tasks
-    .filter(
-      (task) =>
-        task.text === locator.text &&
-        task.indent === locator.indent &&
-        matchesParent(task)
-    )
-    .sort(
-      (a, b) =>
-        Math.abs(a.lineNumber - locator.lineNumber) -
-        Math.abs(b.lineNumber - locator.lineNumber)
-    )[0];
 }
 
 /**
@@ -199,7 +163,8 @@ export async function PUT(req: NextRequest) {
     return Response.json({ ok: true, ...result });
   } catch (err: unknown) {
     const message = err instanceof Error ? err.message : "Unknown error";
-    return Response.json({ ok: false, error: message }, { status: 500 });
+    const status = err instanceof GitHubConflictError ? 409 : 500;
+    return Response.json({ ok: false, error: message }, { status });
   }
 }
 
@@ -213,7 +178,7 @@ export async function DELETE(req: NextRequest) {
   try {
     const { date, task } = (await req.json()) as {
       date?: string;
-      task?: Partial<TaskLocator>;
+      task?: Partial<DailyTaskLocator>;
     };
 
     if (
@@ -231,7 +196,7 @@ export async function DELETE(req: NextRequest) {
       );
     }
 
-    const locator = task as TaskLocator;
+    const locator = task as DailyTaskLocator;
     const result = await modifyDailyJournal(date, (content) => {
       const target = locateTask(parseTasks(content), locator);
       if (!target) return null;

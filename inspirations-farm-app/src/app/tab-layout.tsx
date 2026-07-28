@@ -1,7 +1,6 @@
 "use client";
 
 import { useState } from "react";
-import { motion, AnimatePresence } from "framer-motion";
 import { CalendarDays, Lightbulb, NotebookPen } from "lucide-react";
 
 type Tab = "today" | "inspirations" | "jottings";
@@ -30,49 +29,27 @@ const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
   },
 ];
 
-/**
- * Layout wrapper that:
- *  - Mobile (< lg): shows one tab at a time with a fixed bottom nav bar
- *  - Desktop (lg+): 2-column grid, all panels visible, no nav bar
- */
+/** Mobile uses tabs; desktop reveals the same mounted panels in a grid. */
 export function TabLayout({ todayPanel, inspirationsPanel, jottingsPanel }: Props) {
   const [activeTab, setActiveTab] = useState<Tab>("today");
 
-  const panels: Record<Tab, React.ReactNode> = {
-    today: todayPanel,
-    inspirations: inspirationsPanel,
-    jottings: jottingsPanel,
-  };
-
   return (
     <>
-      {/* ── Mobile: single-panel view ─────────────────────── */}
-      <div className="mx-auto max-w-2xl px-4 pb-[calc(9rem+env(safe-area-inset-bottom))] pt-5 sm:px-6 lg:hidden">
-        <AnimatePresence mode="wait" initial={false}>
-          <motion.div
-            key={activeTab}
-            initial={{ opacity: 0, y: 6 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -6 }}
-            transition={{ duration: 0.18, ease: "easeInOut" }}
-          >
-            {panels[activeTab]}
-          </motion.div>
-        </AnimatePresence>
-      </div>
-
-      {/* ── Desktop: 2-column grid ────────────────────────── */}
-      <div className="mx-auto hidden max-w-[1280px] grid-cols-[minmax(0,0.82fr)_minmax(0,1.18fr)] items-start gap-8 px-8 pb-24 pt-6 lg:grid xl:gap-10">
-        <div className="flex flex-col gap-8">
-          {todayPanel}
-          {jottingsPanel}
+      {/* Mount each panel once so state survives tabs and responsive breakpoints. */}
+      <div className="mx-auto max-w-2xl px-4 pb-[calc(9rem+env(safe-area-inset-bottom))] pt-5 sm:px-6 lg:grid lg:max-w-[1280px] lg:grid-cols-[minmax(0,0.82fr)_minmax(0,1.18fr)] lg:items-start lg:gap-8 lg:px-8 lg:pb-24 lg:pt-6 xl:gap-10">
+        <div className="flex flex-col lg:gap-8">
+          <div className={activeTab === "today" ? "block" : "hidden lg:block"}>
+            {todayPanel}
+          </div>
+          <div className={activeTab === "jottings" ? "block" : "hidden lg:block"}>
+            {jottingsPanel}
+          </div>
         </div>
-        <div className="flex min-w-0 flex-col gap-8">
+        <div className={`${activeTab === "inspirations" ? "block" : "hidden"} min-w-0 lg:block`}>
           {inspirationsPanel}
         </div>
       </div>
 
-      {/* ── Bottom tab bar — mobile only ─────────────────── */}
       <nav
         className="farm-mobile-nav fixed inset-x-3 z-30 mx-auto max-w-md lg:hidden"
         style={{ bottom: "calc(0.75rem + env(safe-area-inset-bottom))" }}
