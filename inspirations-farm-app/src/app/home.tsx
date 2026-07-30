@@ -1,7 +1,8 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { CalendarDays, Sprout } from "lucide-react";
+import Link from "next/link";
+import { CalendarDays, Settings, Sprout } from "lucide-react";
 import { LockScreen } from "./lock-screen";
 import { CaptureFab } from "./capture-fab";
 import { ToastContainer } from "./toast";
@@ -78,6 +79,15 @@ export function Home({ children }: { children: React.ReactNode }) {
                 </span>
               </div>
             </div>
+
+            <Link
+              href="/settings"
+              aria-label="打开设置"
+              title="设置"
+              className="grid size-10 shrink-0 place-items-center rounded-xl border border-[var(--farm-line)] bg-[var(--farm-paper)]/75 text-[var(--farm-muted)] transition-colors hover:border-[var(--farm-green)] hover:text-[var(--farm-green)] focus-visible:outline-none focus-visible:ring-3 focus-visible:ring-[var(--farm-green-soft)]"
+            >
+              <Settings className="size-4" strokeWidth={1.8} />
+            </Link>
 
             <ThemeToggle />
           </div>
