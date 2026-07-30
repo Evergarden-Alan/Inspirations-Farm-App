@@ -1,6 +1,6 @@
 # 专注播放队列功能规划
 
-> **状态：阶段 0C 生产 HTTPS 入口已通过桌面 Chromium 验证（Go）；进入正式功能开发**
+> **状态：阶段 1 领域模型与真实合集解析已完成；进入阶段 2 GitHub 长期配置**
 >
 > **修正原因：Bilibili CDN Referer 校验阻断浏览器直连，改由个人服务器做受限、无落盘的音频中继**
 >
@@ -803,7 +803,7 @@ Go：目标桌面 Chromium 可播放至少 30 秒并成功 seek，且中继满�
 
 阶段 0B 与 0C 均已通过，可以进入完整产品实现。
 
-### 阶段 1：领域模型
+### 阶段 1：领域模型（已完成）
 
 - URL 和 Bilibili 元数据解析。
 - 合集规范化 ID 和配置 Schema。
@@ -1096,3 +1096,24 @@ Go：目标桌面 Chromium 可播放至少 30 秒并成功 seek，且中继满�
 - 音频 URL 使用 `https:`，因此 Vercel HTTPS 页面不会触发 mixed content。
 
 结论：阶段 0C Go，允许进入阶段 1。最终推送部署前仍需在 Vercel 配置相同的 base URL 与签名密钥，密钥不得写入仓库。
+
+---
+
+## 二十七、阶段 1 实施记录（2026-07-31）
+
+已实现：
+
+- `FocusPlaylist`、`FocusPlaylistItem`、配置、缓存和解析结果的版本化领域模型。
+- `Areas/FocusPlaylists/playlists.json` 固定路径与 `bilibili:ugc-season:{seasonId}` 稳定身份生成。
+- Bilibili 视频 URL 的长度、协议、凭据、精确 host、路径和 BVID 校验，并统一规范化为 HTTPS 来源链接。
+- UGC season 元数据、封面域名、owner、数量、sections/episodes、CID、时长和条目顺序的逐字段解析。
+- 内嵌 episodes 完整时直接使用；不完整时调用 archives 分页接口，限制最大条目数并对 `-352`/429 做最多三次有限退避。
+- 分页仍不完整、数量变化、响应超限或结构异常时安全失败，不返回可写入的半成品。
+
+验证结果：
+
+- 应用单元测试、ESLint 和 TypeScript 检查通过。
+- 真实示例解析得到 `bilibili:ugc-season:3458136`，元数据数量 485，实际解析条目 485。
+- 同一合集的来源 BVID 与首尾条目均按当前 Bilibili 响应正确解析，未保存原始响应。
+
+结论：阶段 1 完成，进入阶段 2。
