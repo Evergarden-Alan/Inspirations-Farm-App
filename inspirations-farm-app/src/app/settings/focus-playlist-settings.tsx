@@ -22,7 +22,11 @@ import { ToastContainer, toast } from "@/app/toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { apiFetch, AuthError, hasPin } from "@/lib/api";
-import type { FocusPlaylist } from "@/lib/focus-playlists";
+import {
+  deleteFocusPlaylistCache,
+  writeFocusPlaylistCache,
+} from "@/lib/focus-playlist-cache";
+import type { FocusPlaylist, FocusPlaylistItem } from "@/lib/focus-playlists";
 
 interface PlaylistListResponse {
   ok: true;
@@ -37,6 +41,7 @@ interface PlaylistMutationResponse {
   updated: boolean;
   reason: "DUPLICATE_PLAYLIST" | null;
   playlist: FocusPlaylist;
+  items: FocusPlaylistItem[];
 }
 
 const ERROR_MESSAGES: Record<string, string> = {
@@ -141,6 +146,11 @@ export function FocusPlaylistSettings() {
         next[index] = payload.playlist;
         return next;
       });
+      try {
+        await writeFocusPlaylistCache(payload.playlist.id, payload.items);
+      } catch {
+        console.warn("[FOCUS_PLAYLIST_CACHE] Unable to cache resolved playlist items");
+      }
       setUrl("");
       if (payload.reason === "DUPLICATE_PLAYLIST") {
         toast.info("该合集已经在专注播放队列中");
@@ -171,6 +181,11 @@ export function FocusPlaylistSettings() {
       const payload = await response.json() as { ok: boolean; error?: string };
       if (!response.ok || !payload.ok) throw new Error(errorMessage(payload.error));
       setPlaylists((current) => current?.filter((item) => item.id !== playlist.id) ?? []);
+      try {
+        await deleteFocusPlaylistCache(playlist.id);
+      } catch {
+        console.warn("[FOCUS_PLAYLIST_CACHE] Unable to delete cached playlist items");
+      }
       setConfirmDeleteId(null);
       toast.success("已移出专注播放队列");
     } catch (deleteError) {
