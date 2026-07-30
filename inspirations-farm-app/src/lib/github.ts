@@ -710,6 +710,13 @@ export async function modifyDailyJournal(
     }
     const newContent = modify(journal.content || "");
     if (newContent === null) return null; // modifier aborted (e.g. duplicate)
+    if (newContent === journal.content) {
+      return {
+        path: journal.path!,
+        sha: journal.sha!,
+        content: journal.content || "",
+      };
+    }
     const res = await updateDailyJournal(journal.path!, journal.sha!, newContent);
     return { path: journal.path!, sha: res.sha, content: newContent };
   });

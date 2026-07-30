@@ -11,6 +11,11 @@ import * as yaml from "js-yaml";
 import { fromMarkdown } from "mdast-util-from-markdown";
 import { frontmatter } from "micromark-extension-frontmatter";
 import { frontmatterFromMarkdown } from "mdast-util-frontmatter";
+import {
+  addDurations,
+  formatSecondsToMdDuration,
+  parseDurationToSeconds,
+} from "./focus-duration";
 
 /**
  * gray-matter options that parse frontmatter with js-yaml's JSON_SCHEMA.
@@ -283,13 +288,15 @@ function parseTaskMetadata(text: string): TaskMetadata {
   };
 }
 
-/** Write or replace a task's focus duration without changing adjacent lines. */
+/** Write, replace, or append a task's focus duration without changing adjacent lines. */
 export function setTaskFocusDurationAtLine(
   content: string,
   lineIndex: number,
-  duration: string
+  duration: string,
+  append = false
 ): string {
-  if (!/^(?:\d+h(?:\d{1,2}m)?|\d+m)$/.test(duration)) return content;
+  const durationSeconds = parseDurationToSeconds(duration);
+  if (durationSeconds === null) return content;
 
   const lines = content.split("\n");
   const line = lines[lineIndex];
@@ -299,8 +306,16 @@ export function setTaskFocusDurationAtLine(
   if (!match) return content;
 
   const metadata = parseTaskMetadata(match[2]);
+  let nextDuration: string;
+  try {
+    nextDuration = append
+      ? addDurations(metadata.focusDuration, durationSeconds)
+      : formatSecondsToMdDuration(durationSeconds);
+  } catch {
+    return content;
+  }
   const prioritySuffix = metadata.priorityTag ? ` ${metadata.priorityTag}` : "";
-  lines[lineIndex] = `${match[1]}${metadata.content} ⏱️${duration}${prioritySuffix}${match[3]}`;
+  lines[lineIndex] = `${match[1]}${metadata.content} ⏱️${nextDuration}${prioritySuffix}${match[3]}`;
   return lines.join("\n");
 }
 

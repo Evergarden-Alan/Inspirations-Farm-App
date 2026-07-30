@@ -1,5 +1,4 @@
 import assert from "node:assert/strict";
-import { registerHooks } from "node:module";
 import test from "node:test";
 
 import {
@@ -10,20 +9,6 @@ import {
   parseTasks,
   setTaskFocusDurationAtLine,
 } from "../src/lib/markdown-utils.ts";
-
-registerHooks({
-  resolve(specifier, context, nextResolve) {
-    try {
-      return nextResolve(specifier, context);
-    } catch (error) {
-      const isRelative = specifier.startsWith("./") || specifier.startsWith("../");
-      if (isRelative && !/\.[a-z]+$/i.test(specifier)) {
-        return nextResolve(`${specifier}.ts`, context);
-      }
-      throw error;
-    }
-  },
-});
 
 test("focus duration is written to the selected line before priority metadata", () => {
   const content = [
@@ -79,6 +64,14 @@ test("writing a new duration replaces the previous marker", () => {
 
   assert.equal(updated, "- [ ] 复盘 ⏱️1h03m #p2");
   assert.equal(parseTasks(updated)[0].focusDuration, "1h03m");
+});
+
+test("focus duration append mode adds to the existing marker", () => {
+  const content = "- [ ] 复盘 ⏱️12m #p2";
+  const updated = setTaskFocusDurationAtLine(content, 0, "1h03m", true);
+
+  assert.equal(updated, "- [ ] 复盘 ⏱️1h15m #p2");
+  assert.equal(parseTasks(updated)[0].focusDuration, "1h15m");
 });
 
 test("task locators disambiguate duplicate child text by parent after lines shift", () => {

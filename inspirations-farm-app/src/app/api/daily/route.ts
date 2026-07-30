@@ -17,9 +17,31 @@ import {
 import { validatePin } from "@/lib/auth";
 import { getBeijingDateTimeString } from "@/lib/beijing-time";
 import { deleteTaskSubtreeAtLine } from "@/lib/cascade";
+import {
+  applyFocusSessionDurations,
+  FocusSessionApplyError,
+  type FocusDurationWrite,
+} from "@/lib/focus-session";
 
 function deny() {
   return Response.json({ ok: false, error: "Unauthorized" }, { status: 401 });
+}
+
+function isDailyTaskLocator(value: unknown): value is DailyTaskLocator {
+  if (!value || typeof value !== "object") return false;
+  const task = value as Partial<DailyTaskLocator>;
+  return (
+    typeof task.lineNumber === "number" &&
+    Number.isInteger(task.lineNumber) &&
+    task.lineNumber >= 0 &&
+    typeof task.text === "string" &&
+    typeof task.indent === "string" &&
+    (typeof task.parentText === "string" || task.parentText === null)
+  );
+}
+
+function isDurationSeconds(value: unknown): value is number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
 }
 
 /**
@@ -175,6 +197,87 @@ export async function PUT(req: NextRequest) {
 }
 
 /**
+ * PATCH /api/daily
+ * Atomically applies every duration from one completed focus session.
+ */
+export async function PATCH(req: NextRequest) {
+  if (!validatePin(req)) return deny();
+
+  try {
+    const body: unknown = await req.json();
+    if (!body || typeof body !== "object") {
+      return Response.json({ ok: false, error: "Invalid request body" }, { status: 400 });
+    }
+
+    const candidate = body as {
+      action?: unknown;
+      date?: unknown;
+      sessionId?: unknown;
+      sessions?: unknown;
+    };
+    if (
+      candidate.action !== "saveFocusSession" ||
+      typeof candidate.date !== "string" ||
+      !/^\d{4}-\d{2}-\d{2}$/.test(candidate.date) ||
+      typeof candidate.sessionId !== "string" ||
+      candidate.sessionId.length === 0 ||
+      candidate.sessionId.length > 200 ||
+      !Array.isArray(candidate.sessions) ||
+      candidate.sessions.length === 0 ||
+      candidate.sessions.length > 100
+    ) {
+      return Response.json({ ok: false, error: "Invalid focus session" }, { status: 400 });
+    }
+
+    const writes: FocusDurationWrite[] = [];
+    for (const value of candidate.sessions) {
+      if (!value || typeof value !== "object") {
+        return Response.json({ ok: false, error: "Invalid focus target" }, { status: 400 });
+      }
+      const session = value as {
+        task?: unknown;
+        baseDurationSeconds?: unknown;
+        additionalSeconds?: unknown;
+      };
+      if (
+        !isDailyTaskLocator(session.task) ||
+        !isDurationSeconds(session.baseDurationSeconds) ||
+        !isDurationSeconds(session.additionalSeconds)
+      ) {
+        return Response.json({ ok: false, error: "Invalid focus target" }, { status: 400 });
+      }
+      writes.push({
+        task: session.task,
+        baseDurationSeconds: session.baseDurationSeconds,
+        additionalSeconds: session.additionalSeconds,
+      });
+    }
+
+    const result = await modifyDailyJournal(candidate.date, (content) =>
+      applyFocusSessionDurations(content, writes)
+    );
+    if (!result) {
+      return Response.json({ ok: false, error: "Focus session was not saved" }, { status: 500 });
+    }
+
+    revalidatePath("/");
+    return Response.json({
+      ok: true,
+      sessionId: candidate.sessionId,
+      path: result.path,
+      sha: result.sha,
+      content: result.content,
+    });
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Unknown error";
+    const status = err instanceof FocusSessionApplyError || err instanceof GitHubConflictError
+      ? 409
+      : 500;
+    return Response.json({ ok: false, error: message }, { status });
+  }
+}
+
+/**
  * DELETE /api/daily
  * Deletes one task and its nested subtasks from today's journal.
  */
@@ -187,15 +290,7 @@ export async function DELETE(req: NextRequest) {
       task?: Partial<DailyTaskLocator>;
     };
 
-    if (
-      !date ||
-      typeof date !== "string" ||
-      !task ||
-      typeof task.lineNumber !== "number" ||
-      typeof task.text !== "string" ||
-      typeof task.indent !== "string" ||
-      !(typeof task.parentText === "string" || task.parentText === null)
-    ) {
+    if (!date || typeof date !== "string" || !isDailyTaskLocator(task)) {
       return Response.json(
         { ok: false, error: "Missing or invalid task locator" },
         { status: 400 }

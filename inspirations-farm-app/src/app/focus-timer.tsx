@@ -7,16 +7,22 @@ import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import {
   clearFocusTimerState,
+  finalizeFocusTimer,
   getFocusElapsedSeconds,
+  getFocusSessionElapsedSeconds,
+  pauseFocusTimer,
+  resumeFocusTimer,
   saveFocusTimerState,
+  switchFocusSession,
   type FocusTimerState,
 } from "@/lib/focus-timer-state";
 import type { DailyTask } from "@/lib/github";
 
 interface FocusTimerProps {
   task: DailyTask;
+  targetLabels: string[];
   initialState: FocusTimerState;
-  onComplete: (duration: string) => Promise<boolean>;
+  onComplete: (state: FocusTimerState) => Promise<boolean>;
   onFinished: () => void;
   onClose: () => void;
   onAbort: () => void;
@@ -29,18 +35,9 @@ function formatDuration(seconds: number): string {
   return `${String(h).padStart(2, "0")}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
 }
 
-function formatDurationForMarkdown(seconds: number): string {
-  const h = Math.floor(seconds / 3600);
-  const m = Math.floor((seconds % 3600) / 60);
-
-  if (h > 0 && m > 0) return `${h}h${String(m).padStart(2, "0")}m`;
-  if (h > 0) return `${h}h`;
-  if (m > 0) return `${m}m`;
-  return "1m";
-}
-
 export function FocusTimer({
   task,
+  targetLabels,
   initialState,
   onComplete,
   onFinished,
@@ -48,7 +45,7 @@ export function FocusTimer({
   onAbort,
 }: FocusTimerProps) {
   const [timerState, setTimerState] = useState(initialState);
-  const [elapsed, setElapsed] = useState(() => getFocusElapsedSeconds(initialState));
+  const [clockNow, setClockNow] = useState(() => Date.now());
   const [isCompleting, setIsCompleting] = useState(false);
   const [saveError, setSaveError] = useState(false);
   const [confirmingAbort, setConfirmingAbort] = useState(false);
@@ -59,13 +56,11 @@ export function FocusTimer({
   useEffect(() => {
     if (timerState.isPaused) return;
 
-    const updateElapsed = () => {
-      setElapsed(getFocusElapsedSeconds(timerState));
-    };
-    updateElapsed();
-    const interval = setInterval(updateElapsed, 1000);
+    const updateClock = () => setClockNow(Date.now());
+    updateClock();
+    const interval = setInterval(updateClock, 1000);
     return () => clearInterval(interval);
-  }, [timerState]);
+  }, [timerState.isPaused, timerState.segmentStartedAt]);
 
   useEffect(() => {
     const previouslyFocused = document.activeElement as HTMLElement | null;
@@ -82,29 +77,37 @@ export function FocusTimer({
   const handlePauseResume = useCallback(() => {
     if (isCompleting) return;
 
-    const nextState: FocusTimerState = timerState.isPaused
-      ? {
-          ...timerState,
-          startTime: Date.now() - timerState.pausedDuration * 1000,
-          isPaused: false,
-        }
-      : {
-          ...timerState,
-          pausedDuration: elapsed,
-          isPaused: true,
-        };
+    const now = Date.now();
+    const nextState = timerState.isPaused
+      ? resumeFocusTimer(timerState, now)
+      : pauseFocusTimer(timerState, now);
 
     setTimerState(nextState);
-    setElapsed(getFocusElapsedSeconds(nextState));
+    setClockNow(now);
     saveFocusTimerState(nextState);
-  }, [elapsed, isCompleting, timerState]);
+  }, [isCompleting, timerState]);
+
+  const handleSwitchSession = useCallback((nextIndex: number) => {
+    if (isCompleting) return;
+    const now = Date.now();
+    const nextState = switchFocusSession(timerState, nextIndex, now);
+    if (nextState === timerState) return;
+    setTimerState(nextState);
+    setClockNow(now);
+    saveFocusTimerState(nextState);
+  }, [isCompleting, timerState]);
 
   const handleComplete = useCallback(async () => {
     if (isCompleting) return;
 
+    const now = Date.now();
+    const finalizedState = finalizeFocusTimer(timerState, now);
+    setTimerState(finalizedState);
+    setClockNow(now);
+    saveFocusTimerState(finalizedState);
     setIsCompleting(true);
     setSaveError(false);
-    const saved = await onComplete(formatDurationForMarkdown(elapsed));
+    const saved = await onComplete(finalizedState);
 
     if (saved) {
       clearFocusTimerState();
@@ -114,7 +117,7 @@ export function FocusTimer({
 
     setSaveError(true);
     setIsCompleting(false);
-  }, [elapsed, isCompleting, onComplete, onFinished]);
+  }, [isCompleting, onComplete, onFinished, timerState]);
 
   const handleAbort = useCallback(() => {
     clearFocusTimerState();
@@ -146,6 +149,8 @@ export function FocusTimer({
       first.focus();
     }
   }
+
+  const elapsed = getFocusElapsedSeconds(timerState, clockNow);
 
   return createPortal(
     <motion.div
@@ -201,6 +206,36 @@ export function FocusTimer({
           )}
         </div>
 
+        {timerState.targetMode === "subtasks" && (
+          <div className="w-full space-y-3">
+            <p className="text-center text-xs font-semibold uppercase tracking-[0.16em] text-[var(--farm-muted)]">
+              当前专注子任务
+            </p>
+            <div className="flex max-h-32 flex-wrap justify-center gap-2 overflow-y-auto px-1">
+              {timerState.sessions.map((session, index) => {
+                const active = index === timerState.activeSessionIndex;
+                const label = targetLabels[index] ?? session.taskLocator.text;
+                return (
+                  <button
+                    key={`${session.taskLocator.lineNumber}:${session.taskLocator.text}`}
+                    type="button"
+                    aria-pressed={active}
+                    disabled={isCompleting}
+                    onClick={() => handleSwitchSession(index)}
+                    className={`min-h-11 max-w-full rounded-xl border px-3 py-2 text-left text-sm transition-colors disabled:opacity-50 ${
+                      active
+                        ? "border-[var(--farm-green)] bg-[var(--farm-green-soft)] font-semibold text-[var(--farm-green)]"
+                        : "border-[var(--farm-line)] bg-[var(--farm-paper-raised)] text-[var(--farm-ink)] hover:border-[var(--farm-green)]"
+                    }`}
+                  >
+                    <span className="block truncate">{label}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
         <div className="max-w-full text-center">
           <div
             className="font-mono text-[clamp(2.75rem,16vw,4.5rem)] font-bold leading-none tabular-nums text-[var(--farm-ink)]"
@@ -213,6 +248,28 @@ export function FocusTimer({
             <p className="mt-3 text-sm text-[var(--farm-muted)]">已暂停</p>
           )}
         </div>
+
+        {timerState.targetMode === "subtasks" && (
+          <div className="w-full max-w-md divide-y divide-[var(--farm-line)] overflow-hidden rounded-2xl border border-[var(--farm-line)] bg-[var(--farm-paper-raised)]">
+            {timerState.sessions.map((session, index) => {
+              const active = index === timerState.activeSessionIndex;
+              return (
+                <div
+                  key={`summary:${session.taskLocator.lineNumber}:${session.taskLocator.text}`}
+                  className="flex items-center justify-between gap-4 px-4 py-3 text-sm"
+                >
+                  <span className={`truncate ${active ? "font-semibold text-[var(--farm-green)]" : "text-[var(--farm-ink)]"}`}>
+                    {targetLabels[index] ?? session.taskLocator.text}
+                    {active && <span className="ml-1 text-xs">（当前）</span>}
+                  </span>
+                  <span className="shrink-0 font-mono tabular-nums text-[var(--farm-muted)]">
+                    {formatDuration(getFocusSessionElapsedSeconds(timerState, index, clockNow))}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        )}
 
         {saveError && (
           <p id={errorId} className="farm-alert-error px-3 py-2 text-center text-sm" role="alert">
@@ -276,7 +333,7 @@ export function FocusTimer({
               ) : (
                 <CheckCircle2 className="h-5 w-5" />
               )}
-              {isCompleting ? "保存中..." : "完成任务"}
+              {isCompleting ? "保存中..." : "结束专注并保存"}
             </Button>
 
             <Button

@@ -20,10 +20,9 @@ import {
   insertIntoDailySection,
   locateTask,
   parseTasks,
-  setTaskFocusDurationAtLine,
 } from "@/lib/github";
-import { cascadeSetAtLine, cascadeToggleAtLine } from "@/lib/cascade";
-import type { DailyTask, DailyTaskLocator } from "@/lib/github";
+import { cascadeToggleAtLine } from "@/lib/cascade";
+import type { DailyTask } from "@/lib/github";
 import {
   clearFocusTimerState,
   createFocusTimerState,
@@ -31,6 +30,10 @@ import {
   saveFocusTimerState,
   type FocusTimerState,
 } from "@/lib/focus-timer-state";
+import {
+  formatSecondsToMdDuration,
+  parseDurationToSeconds,
+} from "@/lib/focus-duration";
 import { FocusTimer } from "./focus-timer";
 import { toast } from "./toast";
 
@@ -62,6 +65,31 @@ interface DailyUpdatedDetail {
 interface FocusSession {
   task: DailyTask;
   timer: FocusTimerState;
+  targetLabels: string[];
+}
+
+function getFocusTargetLabels(timer: FocusTimerState, tasks: DailyTask[]): string[] {
+  return timer.sessions.map((session) =>
+    locateTask(tasks, session.taskLocator)?.displayText ?? session.taskLocator.text
+  );
+}
+
+function fillMissingFocusBaselines(
+  timer: FocusTimerState,
+  tasks: DailyTask[]
+): FocusTimerState {
+  let changed = false;
+  const sessions = timer.sessions.map((session) => {
+    if (session.baseDurationSeconds !== null) return session;
+    const task = locateTask(tasks, session.taskLocator);
+    if (!task) return session;
+    changed = true;
+    return {
+      ...session,
+      baseDurationSeconds: parseDurationToSeconds(task.focusDuration) ?? 0,
+    };
+  });
+  return changed ? { ...timer, sessions } : timer;
 }
 
 function getTaskSubtreeSize(tasks: DailyTask[], index: number): number {
@@ -118,13 +146,20 @@ export function DailyDashboard({ initialDaily }: DailyDashboardProps = {}) {
     }
 
     const activeTask = locateTask(state.tasks, stored.task);
-    if (!activeTask || activeTask.done) {
+    if (!activeTask) {
       clearFocusTimerState();
       return;
     }
 
+    const restored = fillMissingFocusBaselines(stored, state.tasks);
+    if (restored !== stored) saveFocusTimerState(restored);
+
     const recoveryTimer = setTimeout(() => {
-      setFocusSession({ task: activeTask, timer: stored });
+      setFocusSession({
+        task: activeTask,
+        timer: restored,
+        targetLabels: getFocusTargetLabels(restored, state.tasks!),
+      });
       setFocusTimerOpen(true);
     }, 0);
     return () => clearTimeout(recoveryTimer);
@@ -460,26 +495,33 @@ export function DailyDashboard({ initialDaily }: DailyDashboardProps = {}) {
   async function handleDeleteTask(task: DailyTask) {
     if (!state?.tasks) return;
 
-    const runningTask = focusSession
-      ? locateTask(state.tasks, focusSession.timer.task)
-      : undefined;
     const taskIndex = state.tasks.findIndex((candidate) => candidate.id === task.id);
-    const runningTaskIndex = runningTask
-      ? state.tasks.findIndex((candidate) => candidate.id === runningTask.id)
-      : -1;
+    const protectedLocators = focusSession
+      ? [
+          focusSession.timer.task,
+          ...focusSession.timer.sessions.map((session) => session.taskLocator),
+        ]
+      : [];
+    const protectedTaskIndices = protectedLocators
+      .map((locator) => locateTask(state.tasks!, locator))
+      .filter((candidate): candidate is DailyTask => Boolean(candidate))
+      .map((candidate) =>
+        state.tasks!.findIndex((taskCandidate) => taskCandidate.id === candidate.id)
+      );
     const subtreeEnd = taskIndex >= 0
       ? taskIndex + getTaskSubtreeSize(state.tasks, taskIndex)
       : taskIndex;
 
     if (
       taskIndex >= 0 &&
-      runningTaskIndex >= taskIndex &&
-      runningTaskIndex < subtreeEnd
+      protectedTaskIndices.some(
+        (protectedIndex) => protectedIndex >= taskIndex && protectedIndex < subtreeEnd
+      )
     ) {
       setDeleteConfirmFor(null);
       setTaskMenuFor(null);
       setFocusTimerOpen(true);
-      toast.info("正在计时的任务不能删除，请先完成或中止计时");
+      toast.info("正在计时的任务不能删除，请先结束并保存或中止计时");
       return;
     }
 
@@ -552,7 +594,7 @@ export function DailyDashboard({ initialDaily }: DailyDashboardProps = {}) {
     }
   }
 
-  // ── Complete task with focus duration ───────────────
+  // ── Focus session ────────────────────────────────────
   function handleOpenFocusTimer(task: DailyTask) {
     if (!state?.path || !state.tasks) return;
     setError(null);
@@ -565,111 +607,113 @@ export function DailyDashboard({ initialDaily }: DailyDashboardProps = {}) {
 
     if (stored) {
       const activeTask = locateTask(state.tasks, stored.task);
-      if (activeTask && !activeTask.done) {
+      if (activeTask) {
         if (activeTask.id !== task.id) {
           toast.info(`「${activeTask.displayText}」正在计时，请先结束或中止`);
           return;
         }
 
-        setFocusSession({ task: activeTask, timer: stored });
+        const restored = fillMissingFocusBaselines(stored, state.tasks);
+        if (restored !== stored) saveFocusTimerState(restored);
+        setFocusSession({
+          task: activeTask,
+          timer: restored,
+          targetLabels: getFocusTargetLabels(restored, state.tasks),
+        });
         setFocusTimerOpen(true);
         return;
       }
       clearFocusTimerState();
     }
 
+    const directSubtasks = state.tasks.filter(
+      (candidate) => candidate.parentId === task.id && !candidate.done
+    );
+    const targets = directSubtasks.length > 0 ? directSubtasks : [task];
     const timer = createFocusTimerState({
       date,
       path: state.path,
       task: createTaskLocator(task, state.tasks),
+      targetMode: directSubtasks.length > 0 ? "subtasks" : "task",
+      sessions: targets.map((target) => ({
+        taskLocator: createTaskLocator(target, state.tasks!),
+        baseDurationSeconds: parseDurationToSeconds(target.focusDuration) ?? 0,
+      })),
     });
     saveFocusTimerState(timer);
-    setFocusSession({ task, timer });
+    setFocusSession({
+      task,
+      timer,
+      targetLabels: targets.map((target) => target.displayText),
+    });
     setFocusTimerOpen(true);
   }
 
-  async function handleCompleteWithDuration(
-    taskLocator: DailyTaskLocator,
-    duration: string
-  ): Promise<boolean> {
+  async function handleSaveFocusSession(timer: FocusTimerState): Promise<boolean> {
     if (!state?.content || !state.sha || !state.path || !state.tasks) return false;
+
+    const sessionsWithTime = timer.sessions.filter((session) => session.elapsedSeconds > 0);
+    const sessions = sessionsWithTime.length > 0
+      ? sessionsWithTime
+      : [timer.sessions[timer.activeSessionIndex]];
+    if (sessions.some((session) => session.baseDurationSeconds === null)) {
+      setError("计时目标已发生变化，无法确认原有时长");
+      return false;
+    }
 
     setActing(true);
     setError(null);
 
     try {
-      await withClientRetry(async (freshState) => {
-        const taskToComplete = locateTask(freshState.tasks, taskLocator);
+      const res = await apiFetch("/api/daily", {
+        method: "PATCH",
+        body: JSON.stringify({
+          action: "saveFocusSession",
+          date: timer.date,
+          sessionId: timer.sessionId,
+          sessions: sessions.map((session) => ({
+            task: session.taskLocator,
+            baseDurationSeconds: session.baseDurationSeconds,
+            additionalSeconds: session.elapsedSeconds,
+          })),
+        }),
+      });
+      const data = await res.json();
+      if (!data.ok) {
+        const err = new Error(data.error ?? "Failed to save focus session") as Error & {
+          status?: number;
+        };
+        err.status = res.status;
+        throw err;
+      }
 
-        if (!taskToComplete) {
-          throw new Error("Task not found");
-        }
-
-        const contentWithDuration = setTaskFocusDurationAtLine(
-          freshState.content,
-          taskToComplete.lineNumber,
-          duration
-        );
-
-        // Never toggle here: another client may have completed the task already.
-        const updatedContent = cascadeSetAtLine(
-          contentWithDuration,
-          taskToComplete.lineNumber,
-          true
-        );
-
-        const newTasks = parseTasks(updatedContent);
-        if (updatedContent === freshState.content) {
-          setState({
-            ...state,
-            content: freshState.content,
-            sha: freshState.sha,
-            tasks: freshState.tasks,
-          });
-          return;
-        }
-
-        // PUT request
-        const res = await apiFetch("/api/daily", {
-          method: "PUT",
-          body: JSON.stringify({
-            path: state.path,
-            sha: freshState.sha,
-            content: updatedContent,
-          }),
-        });
-
-        const data = await res.json();
-
-        if (!data.ok) {
-          const err = new Error(data.error ?? "Failed to update") as Error & { status?: number };
-          err.status = res.status;
-          throw err;
-        }
-
-        // Success
-        setState({ ...state, content: updatedContent, sha: data.sha, tasks: newTasks });
-
-        // Archive linked inspiration if exists
-        if (taskToComplete.sourceIdeaId) {
-          apiFetch("/api/github", {
-            method: "PUT",
-            body: JSON.stringify({
-              ideaId: taskToComplete.sourceIdeaId,
-              status: "completed",
-            }),
-          })
-            .then(() => {
-              window.dispatchEvent(new CustomEvent("inspiration:updated"));
-            })
-            .catch(() => {});
-        }
-      }, 2);
-      toast.success(`任务已完成 · 专注 ${duration}`);
+      const updatedTasks = parseTasks(data.content);
+      setState({
+        ...state,
+        path: data.path,
+        content: data.content,
+        sha: data.sha,
+        tasks: updatedTasks,
+      });
+      window.dispatchEvent(new CustomEvent<DailyUpdatedDetail>("daily:updated", {
+        detail: {
+          date: timer.date,
+          path: data.path,
+          sha: data.sha,
+          content: data.content,
+        },
+      }));
+      toast.success(`专注时长已保存 · ${formatSecondsToMdDuration(
+        sessions.reduce((total, session) => total + session.elapsedSeconds, 0)
+      )}`);
       return true;
     } catch (err) {
       if (!(err instanceof AuthError)) {
-        setError(isConflictError(err) ? "操作冲突，请重试保存" : "计时结果保存失败，请重试");
+        setError(
+          isConflictError(err)
+            ? "任务或已有时长已发生变化，请确认后重试"
+            : "计时结果保存失败，请重试"
+        );
       }
       return false;
     } finally {
@@ -1102,12 +1146,11 @@ export function DailyDashboard({ initialDaily }: DailyDashboardProps = {}) {
       <AnimatePresence>
         {focusTimerOpen && focusSession && (
           <FocusTimer
-            key={`${focusSession.timer.path}:${focusSession.timer.task.lineNumber}`}
+            key={focusSession.timer.sessionId}
             task={focusSession.task}
+            targetLabels={focusSession.targetLabels}
             initialState={focusSession.timer}
-            onComplete={(duration) =>
-              handleCompleteWithDuration(focusSession.timer.task, duration)
-            }
+            onComplete={handleSaveFocusSession}
             onFinished={() => {
               setFocusTimerOpen(false);
               setFocusSession(null);
