@@ -1,6 +1,6 @@
 # 专注播放队列功能规划
 
-> **状态：阶段 0B 已实现并部署；桌面 Chromium 通过，Android/iOS 真机验证待完成**
+> **状态：阶段 0B 已实现并部署，桌面 Chromium 验证通过（Go）；下一步为阶段 0C 生产 HTTPS 入口**
 >
 > **修正原因：Bilibili CDN Referer 校验阻断浏览器直连，改由个人服务器做受限、无落盘的音频中继**
 >
@@ -387,8 +387,8 @@ http://192.168.31.108:<port>
 ```
 
 - 端口在部署前根据服务器现有服务布局确定，不能从 IP 推断。
-- 开发应用本身也必须通过 HTTP 访问，例如桌面使用 `http://localhost:3000`，手机使用 `http://<开发主机局域网IP>:3000`。
-- Android/iOS 访问的开发主机和 `192.168.31.108` 必须处于同一可互访局域网，防火墙仅开放测试所需端口。
+- 开发应用本身也必须通过 HTTP 访问，例如桌面使用 `http://localhost:3000`。
+- 开发主机和 `192.168.31.108` 必须处于同一可互访局域网，防火墙仅开放测试所需端口。
 - 阶段 0B 也使用完整 HMAC 票据，不因处于内网而跳过鉴权，以便验证真实链路。
 - HTTPS 页面不能加载 HTTP 音频；因此该地址不能配置到生产 Vercel/PWA。
 
@@ -721,16 +721,14 @@ FOCUS_AUDIO_RELAY_SIGNING_SECRET
 
 ### 实际设备
 
-- Chromium 桌面版。
-- Android Chrome。
-- iOS Safari。
-- iOS 主屏 PWA。
+- 主要目标环境为 PC 上的 Chromium 桌面版；Edge 等 Chromium 浏览器属于兼容目标，但不作为阶段 0B 的硬门槛。
 - 通过 `http://192.168.31.108:<port>` 播放 `.m4s` AAC 中继流。
-- 每个环境至少连续播放 30 秒并成功 seek。
+- 目标桌面环境至少连续播放 30 秒并成功 seek。
 - 短效中继票据、Bilibili 地址过期后可重新签发或重新解析。
 - 标签页切换、网络中断与恢复。
 - 记录设备型号、OS、浏览器、`canPlayType`、中继响应状态、CDN host、deadline、媒体事件和错误。
-- 阶段 0C 再从蜂窝网络通过生产 HTTPS 域名验证，不把局域网成功等同于公网可用。
+- 阶段 0C 再从日常使用的 PC 网络通过生产 HTTPS 域名验证，不把局域网 HTTP 成功等同于生产可用。
+- Android、iOS 和主屏 PWA 不属于当前产品验收范围，可在未来确有使用需求时补充验证。
 
 ### 工程验证
 
@@ -766,7 +764,7 @@ itemCount: 485
 - 专注界面不展示内容元数据。
 - 浏览器只连接个人中继；中继实际只请求 `dash.audio`，不加载视频流。
 - 中继 URL 必须是条目级短效签名 URL，不能改写为其他 BVID/CID。
-- Range 请求返回 `206`，四个目标环境均连续播放至少 30 秒并成功 seek。
+- Range 请求返回 `206`，目标桌面 Chromium 连续播放至少 30 秒并成功 seek。
 - 中继全程流式传输，不在 `192.168.31.108` 落盘或转码。
 - 下一首随机，上一首回到实际历史。
 - 音频结束后自动随机下一首。
@@ -786,21 +784,21 @@ itemCount: 485
 - 证实应用 Referer 或无 Referer 时 CDN 返回 403，Bilibili 视频页 Referer 时返回 206。
 - 结论：浏览器直连不可用，详细证据保留在第二十三节。
 
-### 阶段 0B：局域网个人中继（下一步）
+### 阶段 0B：局域网个人中继（已完成，Go）
 
 - 在 `192.168.31.108` 部署最小中继，先只支持示例 BVID/CID。
 - 使用 `http://192.168.31.108:<port>`，实现 HMAC、AAC 选择和无落盘 Range 转发。
 - 重建最小探针，使其获取并播放中继 URL。
-- 在桌面 Chromium、Android Chrome、iOS Safari 和 iOS 主屏 PWA 完成 30 秒播放及 seek 矩阵。
+- 在桌面 Chromium 完成至少 30 秒播放及 seek 验证。
 - 检查 206、`Content-Range`、客户端断开、上游刷新、备用 CDN 和服务器无媒体文件。
 
-Go：四个环境均可播放至少 30 秒并成功 seek。条件 Go：iOS Safari 正常但主屏 PWA 不稳定，并明确不保证 PWA 后台播放。No-Go：任一主要环境无法稳定播放或 seek、中继必须缓存/转码/使用登录态，或无法安全限制为条目级代理。
+Go：目标桌面 Chromium 可播放至少 30 秒并成功 seek，且中继满足 Range、无落盘和条目级签名限制。No-Go：目标桌面环境无法稳定播放或 seek、中继必须缓存/转码/使用登录态，或无法安全限制为条目级代理。现有桌面实测已满足 Go。
 
 ### 阶段 0C：生产网络入口
 
 - 选择生产域名和有效 HTTPS 证书。
 - 配置公网 IPv6 的 AAAA/DDNS、防火墙和 TLS；或选择 Tailscale HTTPS/受控双栈入口。
-- 从局域网外和蜂窝网络验证目标设备的 IPv6/IPv4 可达性、Range 与长连接。
+- 从日常使用的 PC 网络验证生产域名的 IPv6/IPv4 可达性、Range 与长连接。
 - 确认 HTTPS 页面没有 mixed content，票据密钥、限流和日志脱敏有效。
 
 阶段 0B 与 0C 都通过后再进入完整产品实现，不带着媒体链路风险继续堆设置页和播放 UI。
@@ -828,7 +826,7 @@ Go：四个环境均可播放至少 30 秒并成功 seek。条件 Go：iOS Safar
 
 - 设置入口、URL 输入、解析和保存状态。
 - 已添加合集、重复提示和删除确认。
-- 移动端适配。
+- PC 桌面布局与常见窗口宽度适配。
 
 ### 阶段 5：缓存与播放状态
 
@@ -844,7 +842,7 @@ Go：四个环境均可播放至少 30 秒并成功 seek。条件 Go：iOS Safar
 ### 阶段 7：综合验证
 
 - 单元测试、UI 测试和实际 Bilibili 测试。
-- Android、iOS 和 PWA 验证。
+- PC 桌面 Chromium 实际播放、seek 和恢复验证。
 - Lint、类型检查和生产构建。
 - 项目说明更新。
 
@@ -898,16 +896,16 @@ Go：四个环境均可播放至少 30 秒并成功 seek。条件 Go：iOS Safar
 **阶段 0 硬闸门**：
 
 - 0A 已确认浏览器直连 No-Go，不再重复尝试通过前端设置 Referer、blob 或伪造请求头解决。
-- 0B Go 标准：四个目标环境（Chromium 桌面、Android Chrome、iOS Safari、iOS 主屏 PWA）均可通过无 `crossOrigin` 的 `<audio>` 播放局域网中继 AAC-LC 至少 30 秒；seek 后恢复播放；Range、备用 CDN 和重新解析正常；服务器不落盘。
-- 条件 Go：iOS Safari 正常，但主屏 PWA 不稳定；明确保持"不保证 PWA 后台播放"并记录支持限制。
-- 0B No-Go：任一主要环境无法加载或 seek、必须缓存/转码/转发登录态、无法把中继限制为签名条目，或风控导致正常使用不可行。
-- 0C Go 标准：生产 HTTPS 域名可从目标局域网和蜂窝网络访问，没有 mixed content；若常用网络存在 IPv4-only 场景，IPv4 回退或私网接入策略已明确。
+- 0B Go 标准：目标 PC 的 Chromium 桌面版可通过无 `crossOrigin` 的 `<audio>` 播放局域网中继 AAC-LC 至少 30 秒；seek 后恢复播放；Range、备用 CDN 和重新解析正常；服务器不落盘。现有实测已满足该标准。
+- Android、iOS 和主屏 PWA 不属于当前硬闸门，不阻塞后续阶段。
+- 0B No-Go：目标桌面环境无法加载或 seek、必须缓存/转码/转发登录态、无法把中继限制为签名条目，或风控导致正常使用不可行。
+- 0C Go 标准：生产 HTTPS 域名可从日常使用的 PC 网络访问，没有 mixed content；若该网络存在 IPv4-only 场景，IPv4 回退或私网接入策略已明确。
 
 **实施修正**：
 
 - 不在 `playlists.json` 中添加 `_lastOp` 等调试字段，保持已批准结构。
 - 测试继续使用现有 `node:test`；不提前引入 Jest 或 Playwright。
-- 阶段 0B/0C 必须在真实设备上验证 Bilibili API、中继流、Range 和跨浏览器播放，失败则不进入阶段 1。
+- 阶段 0B/0C 必须在真实 PC 浏览器上验证 Bilibili API、中继流和 Range；阶段 0B 已通过，阶段 0C 失败则不进入阶段 1。
 
 ---
 
@@ -1072,8 +1070,8 @@ Go：四个环境均可播放至少 30 秒并成功 seek。条件 Go：iOS Safar
 - 从约 31 秒 seek 到约 91 秒，出现 `seeking → waiting → seeked → canplay → playing`，继续播放至 96.2 秒。
 - 页面文本未暴露 `sig=`；移动视口 390×844 无横向溢出。
 
-尚未满足完整 Go：
+范围调整与结论：
 
-- 当前主机没有 `adb`，也没有可由 `idevice_id` 识别的 iOS 设备。
-- 移动视口模拟不计作 Android Chrome、iOS Safari 或 iOS 主屏 PWA 真机证据。
-- 阶段 0B 保持“待真机验证”，通过三类移动环境后才能进入阶段 0C/阶段 1。
+- 主要使用场景确认为 PC 网页端，Android、iOS 和主屏 PWA 不再属于首版验收范围。
+- 桌面 Chromium 已完成连续播放和 seek 实测，阶段 0B 判定为 Go。
+- 生产 Vercel 页面仍必须使用有效 HTTPS 中继入口；完成阶段 0C 后进入阶段 1。
