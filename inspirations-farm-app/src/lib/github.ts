@@ -39,7 +39,12 @@ import {
 } from "./markdown-utils";
 
 // ── Re-export the pre-split public API (keeps external imports working) ──
-export { GitHubConflictError, type GitHubContentItem, type FileListItem } from "./github-client";
+export {
+  GitHubApiError,
+  GitHubConflictError,
+  type GitHubContentItem,
+  type FileListItem,
+} from "./github-client";
 export {
   parseMarkdown,
   extractTitle,

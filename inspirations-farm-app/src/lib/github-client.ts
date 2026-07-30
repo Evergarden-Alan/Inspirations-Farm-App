@@ -24,12 +24,21 @@ export function getConfig() {
   return { pat, owner, repo };
 }
 
+export class GitHubApiError extends Error {
+  readonly status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "GitHubApiError";
+    this.status = status;
+  }
+}
+
 /** Error thrown when a GitHub write conflicts (HTTP 409) — the file's blob SHA
  *  changed between our GET and PUT. Callers can catch this and retry. */
-export class GitHubConflictError extends Error {
-  status = 409;
+export class GitHubConflictError extends GitHubApiError {
   constructor(message: string) {
-    super(message);
+    super(message, 409);
     this.name = "GitHubConflictError";
   }
 }
@@ -94,7 +103,7 @@ export async function githubFetch<T = unknown>(
     if (res.status === 409) {
       throw new GitHubConflictError(safeMessage);
     }
-    throw new Error(safeMessage);
+    throw new GitHubApiError(safeMessage, res.status);
   }
 
   return res.json() as Promise<T>;
