@@ -1,6 +1,6 @@
 # 专注播放队列功能规划
 
-> **状态：阶段 0B 已实现并部署，桌面 Chromium 验证通过（Go）；下一步为阶段 0C 生产 HTTPS 入口**
+> **状态：阶段 0C 生产 HTTPS 入口已通过桌面 Chromium 验证（Go）；进入正式功能开发**
 >
 > **修正原因：Bilibili CDN Referer 校验阻断浏览器直连，改由个人服务器做受限、无落盘的音频中继**
 >
@@ -794,14 +794,14 @@ itemCount: 485
 
 Go：目标桌面 Chromium 可播放至少 30 秒并成功 seek，且中继满足 Range、无落盘和条目级签名限制。No-Go：目标桌面环境无法稳定播放或 seek、中继必须缓存/转码/使用登录态，或无法安全限制为条目级代理。现有桌面实测已满足 Go。
 
-### 阶段 0C：生产网络入口
+### 阶段 0C：生产网络入口（已完成，Go）
 
 - 选择生产域名和有效 HTTPS 证书。
 - 配置公网 IPv6 的 AAAA/DDNS、防火墙和 TLS；或选择 Tailscale HTTPS/受控双栈入口。
 - 从日常使用的 PC 网络验证生产域名的 IPv6/IPv4 可达性、Range 与长连接。
 - 确认 HTTPS 页面没有 mixed content，票据密钥、限流和日志脱敏有效。
 
-阶段 0B 与 0C 都通过后再进入完整产品实现，不带着媒体链路风险继续堆设置页和播放 UI。
+阶段 0B 与 0C 均已通过，可以进入完整产品实现。
 
 ### 阶段 1：领域模型
 
@@ -1032,14 +1032,13 @@ Go：目标桌面 Chromium 可播放至少 30 秒并成功 seek，且中继满�
 - 阶段 0B 只绑定 `192.168.31.108:8787`，不在公网 IPv6 上发布 HTTP 端口。
 - 容器设置自动重启、无新增 capability、`no-new-privileges`、256 MiB 内存、1 CPU 和 64 PID 上限。
 
-阶段 0C 仍待确认：
+阶段 0C 已确认：
 
-- 服务器公网 IPv6 是否固定；若会变化，采用哪一种 DDNS。
-- 生产中继域名及 TLS 证书终止位置。
-- 手机常用网络是否稳定提供 IPv6；不足时选择 Tailscale HTTPS 还是受控双栈入口。
-- 家庭上行带宽、预期同时播放数和可接受的限流阈值。
-
-阶段 0C 的信息在配置生产 HTTPS 入口前确认。
+- 生产入口复用 `media.alanevergarden.xyz` 的有效 TLS 证书，路径为 `/focus-audio`。
+- TLS 在 Nginx Proxy Manager 终止，NPM 通过 `gateway_default` Docker 网络访问中继，不经过宿主机端口回环。
+- 应用生产配置使用 `FOCUS_AUDIO_RELAY_BASE_URL=https://media.alanevergarden.xyz/focus-audio`。
+- 当前主要 PC 网络可访问该 HTTPS 地址；移动网络和 PWA 不属于首版验收范围。
+- 中继仍保留局域网 `192.168.31.108:8787` 调试绑定，不额外暴露新的宿主机公网端口。
 
 ---
 
@@ -1074,4 +1073,26 @@ Go：目标桌面 Chromium 可播放至少 30 秒并成功 seek，且中继满�
 
 - 主要使用场景确认为 PC 网页端，Android、iOS 和主屏 PWA 不再属于首版验收范围。
 - 桌面 Chromium 已完成连续播放和 seek 实测，阶段 0B 判定为 Go。
-- 生产 Vercel 页面仍必须使用有效 HTTPS 中继入口；完成阶段 0C 后进入阶段 1。
+- 生产 HTTPS 中继入口已经完成并通过桌面验证，允许进入阶段 1。
+
+---
+
+## 二十六、阶段 0C 实施记录（2026-07-31）
+
+已实现：
+
+- 生产 HTTPS 中继入口为 `https://media.alanevergarden.xyz/focus-audio`，复用现有 Nginx Proxy Manager 证书。
+- `/focus-audio/` 只允许 `media.alanevergarden.xyz` 上的 `GET` 和 `HEAD`，保留 Range/If-Range，关闭请求与响应缓冲。
+- NPM 与中继通过内部 `gateway_default` Docker 网络直连；Jellyfin 根路径代理保持不变。
+- 应用票据生成支持保留反向代理 base path，验证脚本同时校验 origin 与路径边界。
+
+生产链路验证：
+
+- HTTPS 健康检查返回 `200`，中继报告 healthy。
+- 首段 `bytes=0-1023` 返回 `206`、`audio/mp4`、1024 字节和 MP4 `ftyp` 前缀。
+- seek 段 `bytes=1048576-1049599` 返回 `206`、正确 `Content-Range` 和 1024 字节。
+- 桌面 Chromium 的 `canPlayType('audio/mp4; codecs="mp4a.40.2"')` 返回 `probably`。
+- HTTPS 音频连续播放到 30.88 秒，`readyState=4`、无错误；seek 到 90.89 秒后继续播放到 95.83 秒，仍为 `readyState=4`、无错误。
+- 音频 URL 使用 `https:`，因此 Vercel HTTPS 页面不会触发 mixed content。
+
+结论：阶段 0C Go，允许进入阶段 1。最终推送部署前仍需在 Vercel 配置相同的 base URL 与签名密钥，密钥不得写入仓库。

@@ -35,7 +35,8 @@ const existingRelayEnv = await readOptional(relayEnvPath);
 const secret = readValue(appEnv, "FOCUS_AUDIO_RELAY_SIGNING_SECRET")
   ?? readValue(existingRelayEnv, "FOCUS_RELAY_SIGNING_SECRET")
   ?? randomBytes(32).toString("hex");
-const baseUrl = readValue(appEnv, "FOCUS_AUDIO_RELAY_BASE_URL")
+const baseUrl = process.env.FOCUS_AUDIO_RELAY_BASE_URL
+  ?? readValue(appEnv, "FOCUS_AUDIO_RELAY_BASE_URL")
   ?? "http://192.168.31.108:8787";
 
 if (secret.length < 32) throw new Error("Existing focus relay secret is too short");

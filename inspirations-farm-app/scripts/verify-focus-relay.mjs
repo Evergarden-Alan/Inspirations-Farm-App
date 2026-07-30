@@ -32,7 +32,7 @@ async function fetchRange(url, range) {
 
 const env = parseEnv(await readFile(new URL("../.env.local", import.meta.url), "utf8"));
 const pin = env.get("APP_PIN") ?? "";
-const expectedRelayOrigin = new URL(env.get("FOCUS_AUDIO_RELAY_BASE_URL")).origin;
+const expectedRelayBase = new URL(env.get("FOCUS_AUDIO_RELAY_BASE_URL"));
 const appOrigin = process.argv[2] ?? "http://127.0.0.1:3000";
 
 const probeResponse = await fetch(`${appOrigin}/api/focus-playlists/audio-probe`, {
@@ -52,8 +52,12 @@ if (!probeResponse.ok || !probe.ok) {
 }
 
 const relayUrl = new URL(probe.audio.url);
-if (relayUrl.origin !== expectedRelayOrigin) {
-  throw new Error("Probe returned an unexpected relay origin");
+const expectedRelayPath = `${expectedRelayBase.pathname.replace(/\/$/, "")}/v1/audio/`;
+if (
+  relayUrl.origin !== expectedRelayBase.origin
+  || !relayUrl.pathname.startsWith(expectedRelayPath)
+) {
+  throw new Error("Probe returned a relay URL outside the configured base path");
 }
 
 const initial = await fetchRange(relayUrl, "bytes=0-1023");

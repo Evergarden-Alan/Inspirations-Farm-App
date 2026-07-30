@@ -37,6 +37,21 @@ test("relay URLs authorize one track and never contain credentials", () => {
   assert.equal(result.expiresAt, 1_700_003_600_000);
 });
 
+test("relay URLs preserve an HTTPS reverse-proxy base path", () => {
+  const result = createFocusRelayUrl({
+    baseUrl: "https://media.alanevergarden.xyz/focus-audio",
+    secret: SECRET,
+    bvid: TRACK.bvid,
+    cid: TRACK.cid,
+    nowSeconds: 1_700_000_000,
+    ttlSeconds: 3_600,
+    requireHttps: true,
+  });
+  const url = new URL(result.url);
+  assert.equal(url.origin, "https://media.alanevergarden.xyz");
+  assert.equal(url.pathname, `/focus-audio/v1/audio/${TRACK.bvid}`);
+});
+
 test("production rejects HTTP relay origins and weak secrets", () => {
   assert.throws(
     () => createFocusRelayUrl({

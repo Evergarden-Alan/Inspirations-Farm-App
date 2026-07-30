@@ -53,7 +53,7 @@ export function createFocusRelayUrl(options: {
     throw new FocusRelayConfigError("FOCUS_AUDIO_RELAY_BASE_URL is not a valid URL");
   }
   if (!["http:", "https:"].includes(baseUrl.protocol) || baseUrl.username || baseUrl.password) {
-    throw new FocusRelayConfigError("The relay base URL must be an HTTP(S) origin without credentials");
+    throw new FocusRelayConfigError("The relay base URL must be an HTTP(S) URL without credentials");
   }
   if (baseUrl.search || baseUrl.hash) {
     throw new FocusRelayConfigError("The relay base URL cannot contain a query or hash");
@@ -73,7 +73,8 @@ export function createFocusRelayUrl(options: {
     exp: nowSeconds + ttlSeconds,
   };
   const signature = signFocusRelayTicket(options.secret, ticket);
-  const relayUrl = new URL(`/v1/audio/${ticket.bvid}`, baseUrl);
+  if (!baseUrl.pathname.endsWith("/")) baseUrl.pathname += "/";
+  const relayUrl = new URL(`v1/audio/${ticket.bvid}`, baseUrl);
   relayUrl.searchParams.set("cid", ticket.cid);
   relayUrl.searchParams.set("exp", String(ticket.exp));
   relayUrl.searchParams.set("sig", signature);
