@@ -1,0 +1,22 @@
+[Unit]
+Description=Inspirations Farm Focus Audio Relay
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=replace-with-service-user
+Group=replace-with-service-group
+WorkingDirectory=/opt/focus-audio-relay
+EnvironmentFile=/etc/focus-audio-relay.env
+ExecStart=/usr/bin/node /opt/focus-audio-relay/src/index.mjs
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=
+
+[Install]
+WantedBy=multi-user.target

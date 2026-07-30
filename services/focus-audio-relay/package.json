@@ -1,0 +1,16 @@
+{
+  "name": "focus-audio-relay",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "configure:stage0b": "node scripts/configure-stage0b.mjs",
+    "dev": "node --watch src/index.mjs",
+    "start": "node src/index.mjs",
+    "start:env": "node --env-file=.env src/index.mjs",
+    "test": "node --test tests/*.test.mjs"
+  }
+}

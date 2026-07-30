@@ -1,0 +1,6 @@
+.env
+deployment
+scripts
+tests
+README.md
+npm-debug.log*
