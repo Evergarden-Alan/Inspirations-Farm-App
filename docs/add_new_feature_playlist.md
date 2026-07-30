@@ -1,6 +1,6 @@
 # 专注播放队列功能规划
 
-> **状态：阶段 2 GitHub 长期配置已完成；进入阶段 3 应用接口与中继正式化**
+> **状态：阶段 3 正式应用接口与条目级票据已完成；进入阶段 4 设置页面**
 >
 > **修正原因：Bilibili CDN Referer 校验阻断浏览器直连，改由个人服务器做受限、无落盘的音频中继**
 >
@@ -816,7 +816,7 @@ Go：目标桌面 Chromium 可播放至少 30 秒并成功 seek，且中继满�
 - 幂等添加、删除和 409 冲突重试。
 - 配置校验。
 
-### 阶段 3：应用接口与个人中继
+### 阶段 3：应用接口与个人中继（已完成）
 
 - 合集设置、视频列表和 `audio-ticket` 接口。
 - 个人中继的签名验证、上游解析、Range 流式转发和安全限制。
@@ -1140,3 +1140,26 @@ Go：目标桌面 Chromium 可播放至少 30 秒并成功 seek，且中继满�
 - 本阶段只验证持久化实现，没有向真实 Obsidian 仓库写入测试配置。
 
 结论：阶段 2 完成，进入阶段 3。
+
+---
+
+## 二十九、阶段 3 实施记录（2026-07-31）
+
+已实现：
+
+- `GET/POST/DELETE /api/focus-playlists`：PIN 鉴权、长期配置读取、完整解析后幂等添加/刷新和按规范化 ID 删除。
+- `GET /api/focus-playlists/items?id=...`：先确认合集已配置，再从其已保存来源重新解析完整条目列表。
+- `POST /api/focus-playlists/audio-ticket`：限制请求体、严格校验 playlistId/BVID/CID，并返回 `Cache-Control: private, no-store`。
+- audio-ticket 不信任 IndexedDB：每次从已配置合集来源确认 BVID 成员关系；已知 CID 必须精确相等。
+- 分页缓存条目缺少 CID 时，服务端读取目标 BVID 的 view/pages，确认或补齐 CID 后才生成条目级 HMAC URL。
+- 票据返回实际使用的 playlistId、BVID、CID 和 sourceIndex，但不返回标题、Bilibili CDN URL 或签名密钥。
+- 正式接口只签名控制数据；媒体字节继续由已部署的个人中继流式转发，不经过 Vercel。
+- 共用 API 工具统一处理请求体上限、无缓存响应、鉴权失败和脱敏结构化错误。
+
+验证结果：
+
+- 覆盖合法条目签名、合集外 BVID 拒绝、错误 CID 拒绝、缺失 CID 服务端补齐和 HTTPS base path。
+- 全部单元测试、ESLint、TypeScript 和 Next.js 生产构建通过；三个正式路由均识别为动态 Node.js Route Handler。
+- 本地只读 GET 联调返回 `200`、`version: 1`、空列表和 `private, no-store`；没有向真实 GitHub 仓库写入测试配置。
+
+结论：阶段 3 完成，进入阶段 4。

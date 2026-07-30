@@ -6,6 +6,7 @@ import {
   parseBilibiliUgcSeasonView,
   parseBilibiliVideoUrl,
   resolveBilibiliPlaylist,
+  resolveBilibiliVideoCids,
 } from "../src/lib/bilibili.ts";
 import {
   createFocusPlaylistId,
@@ -118,4 +119,18 @@ test("incomplete embedded episodes use bounded pagination and retain known CIDs"
   assert.equal(resolution.items.length, 2);
   assert.equal(resolution.items[0].cid, "1622386333");
   assert.equal(resolution.items[1].cid, null);
+});
+
+test("video view resolves only validated CIDs for the requested BVID", async () => {
+  const cids = await resolveBilibiliVideoCids(SOURCE_BVID, {
+    fetchImpl: async () => Response.json({
+      code: 0,
+      data: {
+        bvid: SOURCE_BVID,
+        cid: 40377256216,
+        pages: [{ cid: 40377256216 }, { cid: 40377256217 }],
+      },
+    }),
+  });
+  assert.deepEqual(cids, ["40377256216", "40377256217"]);
 });

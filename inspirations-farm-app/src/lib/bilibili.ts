@@ -602,6 +602,48 @@ export async function resolveBilibiliPlaylist(
   return { playlist: embedded.playlist, items };
 }
 
+export async function resolveBilibiliVideoCids(
+  bvid: string,
+  options: {
+    signal?: AbortSignal;
+    fetchImpl?: typeof fetch;
+    timeoutMs?: number;
+  } = {}
+): Promise<string[]> {
+  if (!isValidBilibiliBvid(bvid)) throw new TypeError("A valid BVID is required");
+  const endpoint = new URL(VIEW_ENDPOINT);
+  endpoint.searchParams.set("bvid", bvid);
+  const payload = await fetchBilibiliJson(endpoint, {
+    operation: "view",
+    referer: `https://www.bilibili.com/video/${bvid}/`,
+    signal: options.signal,
+    fetchImpl: options.fetchImpl ?? fetch,
+    timeoutMs: options.timeoutMs ?? 8_000,
+    maxBytes: 2_097_152,
+  });
+  const root = asRecord(payload);
+  if (!root) {
+    throw new BilibiliError("INVALID_UPSTREAM_RESPONSE", "Bilibili view was not an object");
+  }
+  throwForBusinessCode(root, "view");
+  const data = asRecord(root.data);
+  if (!data || data.bvid !== bvid) {
+    throw new BilibiliError("INVALID_UPSTREAM_RESPONSE", "Bilibili view returned another video");
+  }
+  const rawPages = Array.isArray(data.pages) ? data.pages : [];
+  const cids = rawPages
+    .slice(0, 100)
+    .map((page) => positiveIntegerString(asRecord(page)?.cid))
+    .filter((cid): cid is string => cid !== null);
+  const fallbackCid = positiveIntegerString(data.cid);
+  if (cids.length === 0 && fallbackCid) cids.push(fallbackCid);
+  const uniqueCids = [...new Set(cids)];
+  if (uniqueCids.length === 0) {
+    throw new BilibiliError("INVALID_UPSTREAM_RESPONSE", "Bilibili view omitted video CIDs");
+  }
+  return uniqueCids;
+}
+
 export async function resolveBilibiliAudio(
   bvid: string,
   cid: string,
