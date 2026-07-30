@@ -34,6 +34,12 @@ import {
   formatSecondsToMdDuration,
   parseDurationToSeconds,
 } from "@/lib/focus-duration";
+import {
+  FocusAudioController,
+  INITIAL_FOCUS_AUDIO_SNAPSHOT,
+  type FocusAudioControllerHandle,
+  type FocusAudioSnapshot,
+} from "./focus-audio-controller";
 import { FocusTimer } from "./focus-timer";
 import { toast } from "./toast";
 
@@ -129,6 +135,10 @@ export function DailyDashboard({ initialDaily }: DailyDashboardProps = {}) {
   const [taskMenuFor, setTaskMenuFor] = useState<number | null>(null);
   const [focusSession, setFocusSession] = useState<FocusSession | null>(null);
   const [focusTimerOpen, setFocusTimerOpen] = useState(false);
+  const [focusAudio, setFocusAudio] = useState<FocusAudioSnapshot>(
+    INITIAL_FOCUS_AUDIO_SNAPSHOT
+  );
+  const focusAudioRef = useRef<FocusAudioControllerHandle>(null);
   const recoveryCheckedRef = useRef(false);
   const date = getBeijingDateString();
 
@@ -1142,6 +1152,16 @@ export function DailyDashboard({ initialDaily }: DailyDashboardProps = {}) {
         </div>
       </CardContent>
 
+      {focusSession && (
+        <FocusAudioController
+          key={focusSession.timer.sessionId}
+          ref={focusAudioRef}
+          focusSessionId={focusSession.timer.sessionId}
+          isFocusPaused={focusSession.timer.isPaused}
+          onSnapshotChange={setFocusAudio}
+        />
+      )}
+
       {/* Focus Timer Modal */}
       <AnimatePresence>
         {focusTimerOpen && focusSession && (
@@ -1150,13 +1170,27 @@ export function DailyDashboard({ initialDaily }: DailyDashboardProps = {}) {
             task={focusSession.task}
             targetLabels={focusSession.targetLabels}
             initialState={focusSession.timer}
+            focusAudio={focusAudio}
+            onFocusAudioPrevious={() => focusAudioRef.current?.previous()}
+            onFocusAudioToggle={() => focusAudioRef.current?.toggle()}
+            onFocusAudioNext={() => focusAudioRef.current?.next()}
+            onTimerStateChange={(timer) => {
+              setFocusSession((current) => current?.timer.sessionId === timer.sessionId
+                ? { ...current, timer }
+                : current);
+            }}
             onComplete={handleSaveFocusSession}
             onFinished={() => {
+              focusAudioRef.current?.stopAndClear();
               setFocusTimerOpen(false);
               setFocusSession(null);
             }}
-            onClose={() => setFocusTimerOpen(false)}
+            onClose={() => {
+              focusAudioRef.current?.persist();
+              setFocusTimerOpen(false);
+            }}
             onAbort={() => {
+              focusAudioRef.current?.stopAndClear();
               setError(null);
               setFocusTimerOpen(false);
               setFocusSession(null);

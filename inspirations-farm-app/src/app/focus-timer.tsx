@@ -2,7 +2,17 @@
 
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { CheckCircle2, Loader2, Pause, Play, X, XCircle } from "lucide-react";
+import Link from "next/link";
+import {
+  CheckCircle2,
+  Loader2,
+  Pause,
+  Play,
+  SkipBack,
+  SkipForward,
+  X,
+  XCircle,
+} from "lucide-react";
 import { motion } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import {
@@ -17,11 +27,17 @@ import {
   type FocusTimerState,
 } from "@/lib/focus-timer-state";
 import type { DailyTask } from "@/lib/github";
+import type { FocusAudioSnapshot } from "./focus-audio-controller";
 
 interface FocusTimerProps {
   task: DailyTask;
   targetLabels: string[];
   initialState: FocusTimerState;
+  focusAudio: FocusAudioSnapshot;
+  onFocusAudioPrevious: () => void;
+  onFocusAudioToggle: () => void;
+  onFocusAudioNext: () => void;
+  onTimerStateChange: (state: FocusTimerState) => void;
   onComplete: (state: FocusTimerState) => Promise<boolean>;
   onFinished: () => void;
   onClose: () => void;
@@ -39,6 +55,11 @@ export function FocusTimer({
   task,
   targetLabels,
   initialState,
+  focusAudio,
+  onFocusAudioPrevious,
+  onFocusAudioToggle,
+  onFocusAudioNext,
+  onTimerStateChange,
   onComplete,
   onFinished,
   onClose,
@@ -85,7 +106,8 @@ export function FocusTimer({
     setTimerState(nextState);
     setClockNow(now);
     saveFocusTimerState(nextState);
-  }, [isCompleting, timerState]);
+    onTimerStateChange(nextState);
+  }, [isCompleting, onTimerStateChange, timerState]);
 
   const handleSwitchSession = useCallback((nextIndex: number) => {
     if (isCompleting) return;
@@ -95,7 +117,8 @@ export function FocusTimer({
     setTimerState(nextState);
     setClockNow(now);
     saveFocusTimerState(nextState);
-  }, [isCompleting, timerState]);
+    onTimerStateChange(nextState);
+  }, [isCompleting, onTimerStateChange, timerState]);
 
   const handleComplete = useCallback(async () => {
     if (isCompleting) return;
@@ -105,6 +128,7 @@ export function FocusTimer({
     setTimerState(finalizedState);
     setClockNow(now);
     saveFocusTimerState(finalizedState);
+    onTimerStateChange(finalizedState);
     setIsCompleting(true);
     setSaveError(false);
     const saved = await onComplete(finalizedState);
@@ -117,7 +141,7 @@ export function FocusTimer({
 
     setSaveError(true);
     setIsCompleting(false);
-  }, [isCompleting, onComplete, onFinished, timerState]);
+  }, [isCompleting, onComplete, onFinished, onTimerStateChange, timerState]);
 
   const handleAbort = useCallback(() => {
     clearFocusTimerState();
@@ -248,6 +272,78 @@ export function FocusTimer({
             <p className="mt-3 text-sm text-[var(--farm-muted)]">已暂停</p>
           )}
         </div>
+
+        <section
+          className="w-full max-w-sm border-y border-[var(--farm-line)] py-4"
+          aria-label="专注播放"
+        >
+          <p className="text-center text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--farm-muted)]">
+            专注播放
+          </p>
+
+          {focusAudio.configured === false ? (
+            <p className="mt-3 text-center text-sm text-[var(--farm-muted)]">
+              尚未配置播放合集 ·{" "}
+              <Link
+                href="/settings"
+                className="font-medium text-[var(--farm-green)] underline-offset-4 hover:underline"
+              >
+                前往设置
+              </Link>
+            </p>
+          ) : focusAudio.configured === null ? (
+            <p className="mt-3 text-center text-xs text-[var(--farm-muted)]" aria-live="polite">
+              {focusAudio.message ?? "正在准备声音..."}
+            </p>
+          ) : (
+            <>
+              <div className="mt-3 flex items-center justify-center gap-5">
+                <button
+                  type="button"
+                  onClick={onFocusAudioPrevious}
+                  disabled={isCompleting || !focusAudio.canPrevious || focusAudio.phase === "loading"}
+                  aria-label="上一首"
+                  title="上一首"
+                  className="flex size-11 items-center justify-center rounded-full border border-[var(--farm-line)] text-[var(--farm-text)] transition-colors hover:border-[var(--farm-green)] hover:text-[var(--farm-green)] disabled:cursor-not-allowed disabled:opacity-30"
+                >
+                  <SkipBack className="size-4" fill="currentColor" />
+                </button>
+                <button
+                  type="button"
+                  onClick={onFocusAudioToggle}
+                  disabled={isCompleting || timerState.isPaused || focusAudio.phase === "loading"}
+                  aria-label={focusAudio.isPlaying ? "暂停" : "播放"}
+                  title={focusAudio.isPlaying ? "暂停" : "播放"}
+                  className="flex size-12 items-center justify-center rounded-full bg-[var(--farm-green)] text-white shadow-sm transition-transform hover:scale-105 disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  {focusAudio.phase === "loading" ? (
+                    <Loader2 className="size-5 animate-spin" />
+                  ) : focusAudio.isPlaying ? (
+                    <Pause className="size-5" fill="currentColor" />
+                  ) : (
+                    <Play className="ml-0.5 size-5" fill="currentColor" />
+                  )}
+                </button>
+                <button
+                  type="button"
+                  onClick={onFocusAudioNext}
+                  disabled={isCompleting || !focusAudio.canNext || focusAudio.phase === "loading"}
+                  aria-label="换一首"
+                  title="换一首"
+                  className="flex size-11 items-center justify-center rounded-full border border-[var(--farm-line)] text-[var(--farm-text)] transition-colors hover:border-[var(--farm-green)] hover:text-[var(--farm-green)] disabled:cursor-not-allowed disabled:opacity-30"
+                >
+                  <SkipForward className="size-4" fill="currentColor" />
+                </button>
+              </div>
+              <p
+                className="mt-2 min-h-4 text-center text-[11px] text-[var(--farm-muted)]"
+                aria-live="polite"
+              >
+                {focusAudio.message ?? ""}
+              </p>
+            </>
+          )}
+        </section>
 
         {timerState.targetMode === "subtasks" && (
           <div className="w-full max-w-md divide-y divide-[var(--farm-line)] overflow-hidden rounded-2xl border border-[var(--farm-line)] bg-[var(--farm-paper-raised)]">
