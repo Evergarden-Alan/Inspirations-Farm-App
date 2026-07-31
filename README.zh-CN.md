@@ -43,6 +43,7 @@
 - **🧮 数学公式渲染** — 行内 `$...$` 与块级 `$$...$$`，经 `remark-math` + `rehype-katex`；KaTeX CSS 全局引入（`globals.css`）；`output: "html"` 防止暴露 MathML/源码文本如 `{\displaystyle ...}`
 - **🗒️ 每日杂记** — 带时间戳的笔记追加到 `# 本日总结` 下的 `## 今日杂记`；在看板上以时间线渲染
 - **📋 模板支持** — rollover 时从 GitHub 拉取 `Templates/Diary_Template.md`；支持 `{{date}}` / `{{DATE:YYYY-MM-DD}}` 与 `%%TODO_PLACEHOLDER%%` 占位符；路径可由 `DIARY_TEMPLATE_PATH` 环境变量配置；拉取失败回退内置模板
+- **🎧 专注播放队列** — 在独立设置页添加 Bilibili UGC 合集 URL；专注时仅播放音频，不展示标题、封面、画面、序号或原生播放器。支持随机换一首、真实历史上一首、暂停联动、收起弹窗继续播放和刷新恢复。
 - **📱 PWA** — 可安装到主屏，离线缓存，standalone 模式
 - **📂 Headless CMS** — 所有数据以纯 Markdown 存于你的私有 GitHub 仓库
 
@@ -131,7 +132,11 @@ REPO_NAME=your-private-repo
 APP_PIN=1234                                 # 锁屏 PIN（留空则跳过鉴权）
 CRON_SECRET=your-random-secret               # Vercel Cron Job 鉴权
 DIARY_TEMPLATE_PATH=Templates/Diary_Template.md  # 可选，默认即此值
+FOCUS_AUDIO_RELAY_BASE_URL=https://media.example.com/focus-audio
+FOCUS_AUDIO_RELAY_SIGNING_SECRET=与中继服务共享的长随机密钥
 ```
+
+专注播放的合集元数据长期保存在 GitHub 仓库的 `Areas/FocusPlaylists/playlists.json`。生产环境必须使用 HTTPS 中继；中继校验条目级短效签名、支持 Range 流式转发且不落盘媒体文件。Vercel 生产项目 slug 为 `inspirations-farm-app`（末尾包含 `-app`）。
 
 ### 3. 仓库结构
 
@@ -141,9 +146,16 @@ DIARY_TEMPLATE_PATH=Templates/Diary_Template.md  # 可选，默认即此值
 Inspirations/            # 灵感 .md 文件
 Journal/Daily/           # 每日日记 .md 文件
 Templates/               # （可选）Diary_Template.md
+Areas/FocusPlaylists/     # 专注合集配置（首次添加时自动创建）
 ```
 
-### 4. 运行
+### 4. 专注播放
+
+打开设置页，添加类似 `https://www.bilibili.com/video/BV1f53B6qEB6/` 的 Bilibili UGC 合集链接。开始专注后，应用会从已配置合集和条目中两阶段随机选择并仅播放音频；上一首返回真实播放历史，换一首继续随机选择。
+
+首版以 PC 桌面网页为验收目标。短效中继 URL 仅保存在内存中，不写入 GitHub 或浏览器持久播放状态。
+
+### 5. 运行
 
 ```bash
 npm run dev

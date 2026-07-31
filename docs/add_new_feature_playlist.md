@@ -1,6 +1,6 @@
 # 专注播放队列功能规划
 
-> **状态：阶段 6 专注音频控制已完成；进入阶段 7 综合验证与生产部署**
+> **状态：全部 7 个阶段已完成；生产环境验证通过**
 >
 > **修正原因：Bilibili CDN Referer 校验阻断浏览器直连，改由个人服务器做受限、无落盘的音频中继**
 >
@@ -839,7 +839,7 @@ Go：目标桌面 Chromium 可播放至少 30 秒并成功 seek，且中继满�
 - 常驻 `FocusAudioController` 和三按钮界面。
 - 暂停联动、收起继续、自动下一首和失败回退。
 
-### 阶段 7：综合验证
+### 阶段 7：综合验证（已完成）
 
 - 单元测试、UI 测试和实际 Bilibili 测试。
 - PC 桌面 Chromium 实际播放、seek 和恢复验证。
@@ -1233,3 +1233,36 @@ Go：目标桌面 Chromium 可播放至少 30 秒并成功 seek，且中继满�
 - UI 验证没有向真实 GitHub 仓库写入合集，也没有改动日程内容。
 
 结论：阶段 6 完成，进入阶段 7。
+
+---
+
+## 三十三、阶段 7 实施与生产验证记录（2026-07-31）
+
+部署结果：
+
+- Vercel 生产项目确认为 `alans-projects-c0e33329/inspirations-farm-app`；项目 slug 末尾包含 `-app`，不是 `inspirations-farm`。
+- Production 和 Preview 环境均配置 `FOCUS_AUDIO_RELAY_BASE_URL` 与敏感变量 `FOCUS_AUDIO_RELAY_SIGNING_SECRET`，密钥未写入代码、日志或 Git 仓库。
+- 提交 `5524c84` 的生产部署进入 Ready，站点继续使用 `https://todo.alanevergarden.xyz`，音频中继使用 `https://media.alanevergarden.xyz/focus-audio`。
+- 通过正式生产 API 幂等添加示例合集 `https://www.bilibili.com/video/BV1f53B6qEB6/`，以 `bilibili:ugc-season:3458136` 保存至 `Areas/FocusPlaylists/playlists.json`，解析得到 486 个条目且无重复合集。
+
+接口验证：
+
+- 合集列表、合集条目和 `audio-ticket` 生产接口均返回 HTTP 200；读取到 1 个合集、486 个条目。
+- 票据 URL 指向 HTTPS 中继，路径前缀为 `/focus-audio/v1/audio/`，有效期约 21,599 秒，浏览器 `canPlayType` 返回 `probably`。
+- 先前的中继专项验证已确认 Range 请求返回 HTTP 206、seek 正常、客户端断开会取消上游流，且服务器不落盘媒体文件。
+
+PC 桌面实测：
+
+- 在桌面 Chromium、1440x1100 视口完成生产播放：随机条目 `BV1CFkZY7EQa`（CID `27513062047`，sourceIndex `54`）连续播放超过 30 秒。
+- 播放位置从 32.12 秒拖动至 97.05 秒，seek 成功；媒体 `readyState=4`、`networkState=1`，无媒体错误。
+- `canPlayType` 返回 `probably`；页面没有原生音频控件或 Bilibili iframe，也没有显示标题、封面、序号或总数。
+- `farm_focus_player` 中不含音频 URL；暂停/恢复专注、收起弹窗继续播放、刷新恢复同一 BVID 和约 106.30 秒位置、等待用户手势恢复播放均通过生产等价的完整生命周期验证。
+- 验证结束后已清理临时计时与播放状态并暂停音频；中继日志中的 `STREAM_ABORTED` 对应测试脚本主动终止播放，不是播放故障。
+
+工程验证：
+
+- 全部单元测试、ESLint、TypeScript 检查和 Next.js 生产构建通过。
+- 首版发布验收范围为 PC 桌面网页；Android、iOS Safari 和主屏 PWA 不作为此次发布门槛。
+- 项目说明已补充专注合集设置、播放行为、长期配置路径、中继环境变量和生产部署名称。
+
+结论：阶段 7 完成，专注播放队列功能已完成开发、部署及 PC 生产验证。

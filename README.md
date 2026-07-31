@@ -25,6 +25,13 @@ A mobile-first PWA for personal inspiration and task management. GitHub-backed s
 - **Auto Rollover** — Unfinished tasks migrate to the next day at midnight (Beijing time)
 - **Rollover Badge** — Migrated tasks show a distinctive amber "延期" badge
 
+### 🎧 Focus Playlists
+- **Bilibili Collections** — Add an updating UGC collection URL from the dedicated settings page
+- **Distraction-Free Audio** — Play collection audio during a focus session without titles, covers, video, or native media controls
+- **Shuffle & History** — Pick collections and episodes uniformly, avoid recent tracks, and navigate actual playback history
+- **Session Recovery** — Keep playing when the focus dialog closes and restore the same episode and position after refresh
+- **GitHub-Backed Settings** — Persist playlist metadata at `Areas/FocusPlaylists/playlists.json`
+
 ### 🔐 Security & Reliability
 - **PIN Protection** — 4-6 digit lock screen with auto-lockout on 401
 - **Conflict Resolution** — Automatic retry on concurrent edits (HTTP 409)
@@ -61,6 +68,7 @@ Create these directories in your GitHub repo:
 your-repo/
 ├── Inspirations/           # Inspiration markdown files
 ├── Journal/Daily/          # Daily journal files
+├── Areas/FocusPlaylists/   # Focus playlist configuration (created on first add)
 └── Templates/              # Optional: Diary_Template.md
 ```
 
@@ -96,9 +104,15 @@ REPO_NAME=your-repo-name                 # Repository name
 APP_PIN=123456                           # 4-6 digit PIN (optional, omit to disable auth)
 CRON_SECRET=your-random-secret           # Protect rollover endpoint
 
+# Focus audio relay (required for focus playlist playback)
+FOCUS_AUDIO_RELAY_BASE_URL=https://media.example.com/focus-audio
+FOCUS_AUDIO_RELAY_SIGNING_SECRET=replace-with-the-relay-shared-secret
+
 # Optional customization
 DIARY_TEMPLATE_PATH=Templates/Diary_Template.md  # Path to custom template
 ```
+
+The relay must use the same signing secret, expose HTTPS in production, validate item-scoped short-lived tickets, and stream Bilibili audio with Range support without storing media files. The current production Vercel project slug is `inspirations-farm-app`.
 
 **Getting a GitHub PAT:**
 1. Go to GitHub Settings → Developer settings → Personal access tokens → Tokens (classic)
@@ -140,6 +154,14 @@ Add updates to existing inspirations:
 1. Click the 📝 icon on any inspiration card
 2. Type your follow-up thought
 3. Submit — it appends with a timestamp
+
+### Focus Playlist Audio
+
+1. Open **Settings** and add a Bilibili UGC collection URL, for example `https://www.bilibili.com/video/BV1f53B6qEB6/`.
+2. Start a focus session. The player randomly selects a configured collection and episode and plays audio only.
+3. Use previous, play/pause, and next in the focus dialog. Closing the dialog does not stop playback; ending the focus session does.
+
+This feature targets the desktop web experience. Signed relay URLs stay in memory and are never persisted to GitHub or browser playback state.
 
 ---
 
