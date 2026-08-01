@@ -1171,9 +1171,7 @@ export function DailyDashboard({ initialDaily }: DailyDashboardProps = {}) {
             targetLabels={focusSession.targetLabels}
             initialState={focusSession.timer}
             focusAudio={focusAudio}
-            onFocusAudioPrevious={() => focusAudioRef.current?.previous()}
             onFocusAudioToggle={() => focusAudioRef.current?.toggle()}
-            onFocusAudioNext={() => focusAudioRef.current?.next()}
             onTimerStateChange={(timer) => {
               setFocusSession((current) => current?.timer.sessionId === timer.sessionId
                 ? { ...current, timer }

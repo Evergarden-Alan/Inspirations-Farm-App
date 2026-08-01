@@ -133,6 +133,8 @@ async function openCandidate({
     const contentType = response.headers.get("content-type")?.split(";", 1)[0].trim();
     const contentTypeAllowed = response.status === 416
       || contentType === "audio/mp4"
+      // Some Bilibili CDNs label an AAC-only DASH segment as generic MP4.
+      || contentType === "video/mp4"
       || contentType === "application/octet-stream";
 
     if (!statusAllowed || !contentTypeAllowed) {

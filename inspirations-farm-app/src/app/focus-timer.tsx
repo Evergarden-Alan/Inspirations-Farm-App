@@ -2,14 +2,11 @@
 
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import Link from "next/link";
 import {
   CheckCircle2,
   Loader2,
   Pause,
   Play,
-  SkipBack,
-  SkipForward,
   X,
   XCircle,
 } from "lucide-react";
@@ -34,9 +31,7 @@ interface FocusTimerProps {
   targetLabels: string[];
   initialState: FocusTimerState;
   focusAudio: FocusAudioSnapshot;
-  onFocusAudioPrevious: () => void;
   onFocusAudioToggle: () => void;
-  onFocusAudioNext: () => void;
   onTimerStateChange: (state: FocusTimerState) => void;
   onComplete: (state: FocusTimerState) => Promise<boolean>;
   onFinished: () => void;
@@ -56,9 +51,7 @@ export function FocusTimer({
   targetLabels,
   initialState,
   focusAudio,
-  onFocusAudioPrevious,
   onFocusAudioToggle,
-  onFocusAudioNext,
   onTimerStateChange,
   onComplete,
   onFinished,
@@ -70,6 +63,7 @@ export function FocusTimer({
   const [isCompleting, setIsCompleting] = useState(false);
   const [saveError, setSaveError] = useState(false);
   const [confirmingAbort, setConfirmingAbort] = useState(false);
+  const [focusAudioRequested, setFocusAudioRequested] = useState(false);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
   const titleId = useId();
   const errorId = useId();
@@ -273,78 +267,6 @@ export function FocusTimer({
           )}
         </div>
 
-        <section
-          className="w-full max-w-sm border-y border-[var(--farm-line)] py-4"
-          aria-label="专注播放"
-        >
-          <p className="text-center text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--farm-muted)]">
-            专注播放
-          </p>
-
-          {focusAudio.configured === false ? (
-            <p className="mt-3 text-center text-sm text-[var(--farm-muted)]">
-              尚未配置播放合集 ·{" "}
-              <Link
-                href="/settings"
-                className="font-medium text-[var(--farm-green)] underline-offset-4 hover:underline"
-              >
-                前往设置
-              </Link>
-            </p>
-          ) : focusAudio.configured === null ? (
-            <p className="mt-3 text-center text-xs text-[var(--farm-muted)]" aria-live="polite">
-              {focusAudio.message ?? "正在准备声音..."}
-            </p>
-          ) : (
-            <>
-              <div className="mt-3 flex items-center justify-center gap-5">
-                <button
-                  type="button"
-                  onClick={onFocusAudioPrevious}
-                  disabled={isCompleting || !focusAudio.canPrevious || focusAudio.phase === "loading"}
-                  aria-label="上一首"
-                  title="上一首"
-                  className="flex size-11 items-center justify-center rounded-full border border-[var(--farm-line)] text-[var(--farm-text)] transition-colors hover:border-[var(--farm-green)] hover:text-[var(--farm-green)] disabled:cursor-not-allowed disabled:opacity-30"
-                >
-                  <SkipBack className="size-4" fill="currentColor" />
-                </button>
-                <button
-                  type="button"
-                  onClick={onFocusAudioToggle}
-                  disabled={isCompleting || timerState.isPaused || focusAudio.phase === "loading"}
-                  aria-label={focusAudio.isPlaying ? "暂停" : "播放"}
-                  title={focusAudio.isPlaying ? "暂停" : "播放"}
-                  className="flex size-12 items-center justify-center rounded-full bg-[var(--farm-green)] text-white shadow-sm transition-transform hover:scale-105 disabled:cursor-not-allowed disabled:opacity-40"
-                >
-                  {focusAudio.phase === "loading" ? (
-                    <Loader2 className="size-5 animate-spin" />
-                  ) : focusAudio.isPlaying ? (
-                    <Pause className="size-5" fill="currentColor" />
-                  ) : (
-                    <Play className="ml-0.5 size-5" fill="currentColor" />
-                  )}
-                </button>
-                <button
-                  type="button"
-                  onClick={onFocusAudioNext}
-                  disabled={isCompleting || !focusAudio.canNext || focusAudio.phase === "loading"}
-                  aria-label="换一首"
-                  title="换一首"
-                  className="flex size-11 items-center justify-center rounded-full border border-[var(--farm-line)] text-[var(--farm-text)] transition-colors hover:border-[var(--farm-green)] hover:text-[var(--farm-green)] disabled:cursor-not-allowed disabled:opacity-30"
-                >
-                  <SkipForward className="size-4" fill="currentColor" />
-                </button>
-              </div>
-              <p
-                className="mt-2 min-h-4 text-center text-[11px] text-[var(--farm-muted)]"
-                aria-live="polite"
-              >
-                {focusAudio.message ?? ""}
-              </p>
-            </>
-          )}
-        </section>
-
         {timerState.targetMode === "subtasks" && (
           <div className="w-full max-w-md divide-y divide-[var(--farm-line)] overflow-hidden rounded-2xl border border-[var(--farm-line)] bg-[var(--farm-paper-raised)]">
             {timerState.sessions.map((session, index) => {
@@ -450,6 +372,39 @@ export function FocusTimer({
             收起后仍会继续计时，点击任务旁的计时按钮即可返回。
           </p>
         )}
+
+        {!confirmingAbort &&
+          focusAudio.configured === true &&
+          (focusAudio.phase !== "loading" || focusAudioRequested) && (
+            <div className="flex min-h-9 flex-wrap items-center justify-center gap-x-3 gap-y-1 text-xs text-[var(--farm-muted)]">
+              <button
+                type="button"
+                onClick={() => {
+                  setFocusAudioRequested(true);
+                  onFocusAudioToggle();
+                }}
+                disabled={isCompleting || timerState.isPaused || focusAudio.phase === "loading"}
+                className="inline-flex h-9 items-center gap-1.5 rounded-lg px-2.5 transition-colors hover:bg-[var(--farm-paper-deep)] hover:text-[var(--farm-ink)] disabled:cursor-not-allowed disabled:opacity-40"
+                aria-label={focusAudio.isPlaying ? "暂停环境音" : "播放环境音"}
+              >
+                {focusAudio.phase === "loading" ? (
+                  <Loader2 className="size-3.5 animate-spin" />
+                ) : focusAudio.isPlaying ? (
+                  <Pause className="size-3.5" fill="currentColor" />
+                ) : (
+                  <Play className="size-3.5" fill="currentColor" />
+                )}
+                {focusAudio.phase === "loading"
+                  ? "正在准备环境音"
+                  : focusAudio.isPlaying
+                    ? "暂停环境音"
+                    : "播放环境音"}
+              </button>
+              {focusAudioRequested && focusAudio.phase === "error" && (
+                <span aria-live="polite">{focusAudio.message ?? "环境音暂不可用"}</span>
+              )}
+            </div>
+          )}
       </motion.div>
     </motion.div>,
     document.body

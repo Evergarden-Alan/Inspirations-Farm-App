@@ -85,6 +85,33 @@ test("signed Range requests preserve media status, headers, and Referer", async 
   assert.equal(upstreamRequest.init.headers.Referer, `https://www.bilibili.com/video/${BVID}/`);
 });
 
+test("audio-only DASH served as video/mp4 is accepted and normalized", async (t) => {
+  const server = createRelayServer({
+    config: testConfig(),
+    logger() {},
+    isAllowedUrl: () => true,
+    resolveAudio: async () => ({
+      urls: ["https://cdn.example.test/audio.m4s"],
+      mimeType: "audio/mp4",
+    }),
+    fetchImpl: async () => new Response(new Uint8Array([1, 2]), {
+      status: 206,
+      headers: {
+        "Content-Type": "video/mp4",
+        "Content-Length": "2",
+        "Content-Range": "bytes 0-1/2",
+      },
+    }),
+  });
+  t.after(() => close(server));
+  const origin = await listen(server);
+
+  const response = await fetch(ticketUrl(origin), { headers: { Range: "bytes=0-" } });
+  assert.equal(response.status, 206);
+  assert.equal(response.headers.get("content-type"), "audio/mp4");
+  assert.deepEqual([...new Uint8Array(await response.arrayBuffer())], [1, 2]);
+});
+
 test("invalid signatures are rejected without touching Bilibili", async (t) => {
   let resolved = false;
   const server = createRelayServer({

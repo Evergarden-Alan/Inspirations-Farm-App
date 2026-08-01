@@ -303,12 +303,15 @@ export const FocusAudioController = forwardRef<
       else audio.addEventListener("loadedmetadata", restorePosition, { once: true });
     }
     audio.load();
+    if (autoplay && !focusPausedRef.current) {
+      await tryPlay();
+      return;
+    }
     publish({
       phase: focusPausedRef.current ? "paused" : "ready",
       isPlaying: false,
       message: focusPausedRef.current ? "专注计时已暂停" : "点击播放声音",
     });
-    if (autoplay && !focusPausedRef.current) await tryPlay();
   }, [publish, tryPlay]);
 
   const loadStoredTrack = useCallback(async (
@@ -442,12 +445,33 @@ export const FocusAudioController = forwardRef<
       }
       return;
     }
+    const state = playerStateRef.current;
+    if (!state) {
+      void loadRandomTrack(true).catch(showPlaybackFailure);
+      return;
+    }
+    if (!audio.currentSrc) {
+      void loadStoredTrack(state, true, state.currentTime).catch((error) => {
+        if (isTrackSpecificFailure(error)) {
+          playerStateRef.current = null;
+          clearStoredFocusPlayerState();
+          void loadRandomTrack(true).catch(showPlaybackFailure);
+        } else {
+          showPlaybackFailure(error);
+        }
+      });
+      return;
+    }
     void tryPlay();
   }, [loadRandomTrack, loadStoredTrack, persistCurrentPosition, publish, showPlaybackFailure, tryPlay]);
 
   const recoverFromAudioError = useCallback(() => {
     const state = playerStateRef.current;
     if (!state || operationIdRef.current === 0) return;
+    if (!playbackIntentRef.current) {
+      showPlaybackFailure(new Error("Media failed while playback was paused"));
+      return;
+    }
     const autoplay = playbackIntentRef.current && !focusPausedRef.current;
     const resumeAt = audioRef.current?.currentTime || state.currentTime;
     const failures = consecutiveFailuresRef.current;
@@ -582,25 +606,18 @@ export const FocusAudioController = forwardRef<
         };
 
         if (stored) {
-          playerStateRef.current = stored;
           playbackIntentRef.current = false;
-          try {
-            await loadStoredTrack(stored, false, stored.currentTime);
-          } catch (error) {
-            if (isTrackSpecificFailure(error)) {
-              playerStateRef.current = null;
-              clearStoredFocusPlayerState();
-              if (poolsRef.current.length === 0 && needsRefresh.length > 0) await refresh();
-              await loadRandomTrack(false);
-            } else {
-              showPlaybackFailure(error);
-            }
-          }
+          persistPlayerState(stored);
+          publish({
+            phase: "ready",
+            isPlaying: false,
+            message: "需要时可手动播放环境音",
+          });
           if (needsRefresh.length > 0) void refresh();
           return;
         }
 
-        playbackIntentRef.current = !focusPausedRef.current;
+        playbackIntentRef.current = false;
         if (poolsRef.current.length === 0 && needsRefresh.length > 0) await refresh();
         if (poolsRef.current.length === 0) {
           publish({
@@ -611,7 +628,11 @@ export const FocusAudioController = forwardRef<
           });
           return;
         }
-        await loadRandomTrack(!focusPausedRef.current);
+        publish({
+          phase: "ready",
+          isPlaying: false,
+          message: "需要时可手动播放环境音",
+        });
         if (needsRefresh.length > 0 && cached.some(Boolean)) void refresh();
       } catch (error) {
         if (!cancelled) showPlaybackFailure(error);
@@ -636,6 +657,7 @@ export const FocusAudioController = forwardRef<
     loadStoredTrack,
     onSnapshotChange,
     persistCurrentPosition,
+    persistPlayerState,
     publish,
     rebuildPools,
     showPlaybackFailure,
