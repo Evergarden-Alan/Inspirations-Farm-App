@@ -22,6 +22,7 @@ A mobile-first PWA for personal inspiration and task management. GitHub-backed s
 - **Nested Tasks** — Hierarchical todo list with parent-child relationships
 - **Cascade Toggle** — Completing a parent completes all children automatically
 - **Daily Jottings** — Timestamped notes for quick thoughts
+- **Jotting Image Attachments** — Attach a photo to any single jotting; smart client-side compression (≤1MB/GIF pass through, larger resize to ≤2000px), stored as Obsidian `![[...]]` embeds under `Assets/Sources`, rendered in-app via the PIN-authed proxy
 - **Auto Rollover** — Unfinished tasks migrate to the next day at midnight (Beijing time)
 - **Rollover Badge** — Migrated tasks show a distinctive amber "延期" badge
 

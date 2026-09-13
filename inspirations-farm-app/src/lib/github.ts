@@ -16,8 +16,10 @@ import pLimit from "p-limit";
 import {
   getConfig,
   githubFetch,
+  githubFetchRaw,
   withConflictRetry,
   encodeBase64,
+  encodeBase64Bytes,
   decodeBase64,
   type GitHubContentItem,
   type FileListItem,
@@ -59,12 +61,15 @@ export {
   insertSubtaskLine,
   insertIntoDailySection,
   insertIntoDailyNotesSection,
+  insertImageAfterDailyNote,
   stripStalePlaceholder,
+  transformWikilinkImages,
   type ParsedMarkdown,
   type InspirationPatch,
   type DailyTask,
   type DailyTaskLocator,
   type DailyNote,
+  type DailyNoteAnchor,
 } from "./markdown-utils";
 
 // ── Types ──────────────────────────────────────────────
@@ -178,6 +183,54 @@ export async function getFileContent(filePath: string): Promise<string> {
   }
   console.log(`[getFileContent] OK → ${filePath} (${data.content.length} chars b64)`);
   return decodeBase64(data.content);
+}
+
+// ── Binary attachments (Assets/Sources images) ─────────
+
+/** Create a new binary file (image upload) at `repoPath`. PUT without a SHA
+ *  = create; a 422 means the path already exists (callers retry with a fresh
+ *  name). Follows the same Contents API shape as createInspiration. */
+export async function createBinaryFile(
+  repoPath: string,
+  bytes: Uint8Array,
+  message: string
+): Promise<{ path: string; sha: string; size: number }> {
+  const { owner, repo } = getConfig();
+
+  // SECURITY: same traversal guard as getFileContent.
+  if (repoPath.includes("..") || repoPath.startsWith("/")) {
+    throw new Error(`Invalid file path: ${repoPath}`);
+  }
+
+  const result = await githubFetch<{
+    content: { path: string; sha: string; size: number };
+  }>(`/repos/${owner}/${repo}/contents/${repoPath}`, {
+    method: "PUT",
+    body: JSON.stringify({
+      message,
+      content: encodeBase64Bytes(bytes),
+    }),
+    headers: { "Content-Type": "application/json" },
+  });
+
+  return {
+    path: result.content.path,
+    sha: result.content.sha,
+    size: result.content.size,
+  };
+}
+
+/** Fetch a file's raw bytes (serves private-repo media to the app via the
+ *  attachment proxy route). Uses the raw media type, so any file size works. */
+export async function getRawFile(repoPath: string): Promise<ArrayBuffer> {
+  const { owner, repo } = getConfig();
+
+  // SECURITY: Prevent path traversal attacks (same guard as getFileContent).
+  if (repoPath.includes("..") || repoPath.startsWith("/")) {
+    throw new Error(`Invalid file path: ${repoPath}`);
+  }
+
+  return githubFetchRaw(`/repos/${owner}/${repo}/contents/${repoPath}`);
 }
 
 /** List inspirations with full content and parsed metadata */

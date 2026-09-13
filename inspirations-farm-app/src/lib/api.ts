@@ -49,7 +49,11 @@ export async function apiFetch(
       const res = await fetch(url, {
         ...requestOptions,
         headers: {
-          "Content-Type": "application/json",
+          // FormData bodies must NOT get a JSON content-type — the browser
+          // sets the multipart boundary itself. A forced header mangles it.
+          ...(requestOptions.body instanceof FormData
+            ? {}
+            : { "Content-Type": "application/json" }),
           "x-app-pin": getPin() ?? "",
           ...requestOptions.headers,
         },

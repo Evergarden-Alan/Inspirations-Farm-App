@@ -41,6 +41,16 @@ export function getBeijingTimestamp(): string {
   return dt.replace(" ", "-").replace(/:/g, "");
 }
 
+/** Format any Date as a compact Beijing timestamp YYYYMMDDHHmmss (the Obsidian
+ *  attachment-naming convention, e.g. "Pasted image 20260913221301.png").
+ *  Accepts an injected Date so callers (and tests) can pin the moment. */
+export function formatBeijingCompactTimestamp(d: Date): string {
+  return `${dateFormatter.format(d)} ${timeFormatter.format(d)}`.replace(
+    /\D/g,
+    ""
+  );
+}
+
 /**
  * Format a Date as YYYY-MM-DD in the Asia/Shanghai timezone.
  */

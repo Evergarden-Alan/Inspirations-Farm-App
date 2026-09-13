@@ -73,7 +73,23 @@ export interface DailyTaskLocator {
 
 export interface DailyNote {
   time: string; // HH:mm
+  /** First line + continuation lines joined with "\n" (indent stripped).
+   *  Continuations are indented non-blank lines — image embeds written by
+   *  insertImageAfterDailyNote live here. */
   text: string;
+  /** 0-based line of the "- **HH:mm**" bullet (parseTasks convention). */
+  lineNumber: number;
+  /** 0-based last line of the note block (bullet line if no continuations). */
+  endLine: number;
+}
+
+/** Locates one specific note among possibly-duplicate time+text matches.
+ *  `text` is the note's FIRST line only (not the joined continuation text). */
+export interface DailyNoteAnchor {
+  time: string;
+  text: string;
+  /** 0-based index among notes sharing the same time+text. */
+  occurrence: number;
 }
 
 // ── Frontmatter (date-safe) ────────────────────────────
@@ -423,8 +439,6 @@ export function parseDailyNotes(content: string): DailyNote[] {
   const sectionStart = findHeadingLine(root, "今日杂记"); // 1-based, -1 if absent
   if (sectionStart === -1) return [];
 
-  const sectionStart0 = sectionStart - 1; // 0-based
-
   // Section ends at the next H1 heading or `---`.
   const endLine = findSectionEndLine(
     root,
@@ -434,15 +448,113 @@ export function parseDailyNotes(content: string): DailyNote[] {
   );
   const sectionEnd0 = endLine - 1; // 0-based; === lines.length when EOF
 
-  const notes: DailyNote[] = [];
+  return scanDailyNotes(lines, sectionStart - 1, sectionEnd0).map(
+    ({ time, firstText, continuations, lineNumber, endLine }) => ({
+      time,
+      text: [firstText, ...continuations].join("\n"),
+      lineNumber,
+      endLine,
+    })
+  );
+}
+
+/** Shape produced by scanDailyNotes — the single source of truth for both
+ *  parseDailyNotes (public rendering) and insertImageAfterDailyNote (edits),
+ *  so parsing and insertion can never disagree about note boundaries. */
+interface ScannedDailyNote {
+  time: string;
+  /** Text of the "- **HH:mm**" bullet line itself (trimmed). */
+  firstText: string;
+  /** Indented continuation lines below the bullet (indent stripped). */
+  continuations: string[];
+  /** 0-based line of the bullet; endLine is the note block's last line. */
+  lineNumber: number;
+  endLine: number;
+}
+
+/** Scan the 今日杂记 section for timestamped notes and their continuations.
+ *
+ *  A note bullet (`- **HH:mm** text`) opens a note; an INDENTED non-blank line
+ *  below it continues it (image embeds, multi-line bodies); a blank line or any
+ *  column-0 line closes it. Column-0 plain bullets (AI planning notes etc.)
+ *  are therefore never swallowed into the note above them. */
+function scanDailyNotes(
+  lines: string[],
+  sectionStart0: number,
+  sectionEnd0: number
+): ScannedDailyNote[] {
   const noteRe = /^-\s+\*\*(\d{2}:\d{2})\*\*\s+(.*)$/;
+  const notes: ScannedDailyNote[] = [];
+
   for (let i = sectionStart0 + 1; i < sectionEnd0; i++) {
     const match = lines[i].match(noteRe);
-    if (match) {
-      notes.push({ time: match[1], text: match[2].trim() });
+    if (!match) continue;
+
+    const note: ScannedDailyNote = {
+      time: match[1],
+      firstText: match[2].trim(),
+      continuations: [],
+      lineNumber: i,
+      endLine: i,
+    };
+    notes.push(note);
+
+    let j = i + 1;
+    while (j < sectionEnd0) {
+      const line = lines[j];
+      // Only an indented, non-blank line continues the note. (Checked on the
+      // raw line so a "   " whitespace-only line counts as blank and closes.)
+      if (line.trim() !== "" && /^\s/.test(line)) {
+        note.continuations.push(line.trim());
+        note.endLine = j;
+        j++;
+      } else {
+        break;
+      }
     }
+    i = j - 1; // continue scanning after the note block
   }
   return notes;
+}
+
+/**
+ * Insert an image embed line (`\t![[filename]]`) directly after a specific
+ * note entry in the ## 今日杂记 section — after the note's LAST continuation
+ * line, so a second image lands below the first and stays in the same block.
+ *
+ * The note is located by exact time + first-line text + occurrence index
+ * (disambiguates duplicate entries). Returns null when the section or the
+ * anchored note can't be found (caller maps that to a "refresh and retry"
+ * error) — attach never auto-creates the section. Everything outside the
+ * spliced line is preserved byte-for-byte.
+ */
+export function insertImageAfterDailyNote(
+  content: string,
+  anchor: DailyNoteAnchor,
+  filename: string
+): string | null {
+  const lines = content.split("\n");
+  const root = parseMarkdownAst(content);
+  const sectionStart = findHeadingLine(root, "今日杂记"); // 1-based, -1 if absent
+  if (sectionStart === -1) return null;
+
+  const endLine = findSectionEndLine(
+    root,
+    sectionStart,
+    { headingEnds: (d) => d === 1, thematicBreakEnds: true },
+    lines.length + 1
+  );
+
+  const matches = scanDailyNotes(lines, sectionStart - 1, endLine - 1).filter(
+    (note) => note.time === anchor.time && note.firstText === anchor.text
+  );
+  const target = matches[anchor.occurrence];
+  if (!target) return null;
+
+  // Tab indent matches the journal's subtask convention; the embed stays part
+  // of the note's list item so Obsidian renders it under the note text.
+  lines.splice(target.endLine + 1, 0, `\t![[${filename}]]`);
+  return lines.join("\n");
 }
 
 // ── AST-based section location (mdast) ──────────────────
@@ -729,5 +841,69 @@ export function stripStalePlaceholder(content: string): string {
     .split("\n")
     .filter((line) => line.trim() !== "%%TODO_PLACEHOLDER%%")
     .map((line) => line.replace(/%%TODO_PLACEHOLDER%%/g, ""))
+    .join("\n");
+}
+
+// ── Obsidian image embed rendering (provisional wikilink transform) ───────
+//
+// Obsidian `![[file.png]]` embeds aren't standard Markdown — remark parses them
+// as plain text. This transform rewrites image embeds to standard `![alt](url)`
+// pointing at the app's PIN-authed attachment proxy, so react-markdown renders
+// them. The URL is relative (no scheme) so it passes rehype-sanitize's default
+// schema; the custom img component fetches the bytes with x-app-pin at render
+// time. Extension set must stay in sync with what /api/attachment will serve
+// (png / jpeg / webp / gif).
+
+/** File extensions the attachment proxy can serve (lowercase, no dot). */
+const ATTACHMENT_IMAGE_EXTS = ["png", "jpg", "jpeg", "webp", "gif"];
+
+/**
+ * Rewrite Obsidian image embeds to standard Markdown images served by the
+ * attachment proxy:
+ *
+ *   ![[Pasted image 20260913120000.png]]      → ![](/api/attachment?file=Pasted%20image%20…)
+ *   ![[Assets/Sources/x.png|备注]]            → ![备注](/api/attachment?file=x.png)
+ *
+ * Code is respected on both block and inline level: fenced/indented code-block
+ * lines are masked via the mdast tree, and inline code spans are masked with
+ * placeholders, so `` `![[x.png]]` `` inside backticks stays verbatim. Anything
+ * that isn't an image-typed embed (notes, PDFs, unknown extensions) is left
+ * untouched. Idempotent: the output contains no image wikilinks.
+ */
+export function transformWikilinkImages(text: string): string {
+  if (!text.includes("![[") || !text.includes("]]")) return text;
+
+  const codeLines = collectCodeLines(parseMarkdownAst(text));
+
+  const extGroup = ATTACHMENT_IMAGE_EXTS.join("|");
+  const embedRe = new RegExp(
+    `!\\[\\[([^\\]|]+?\\.(?:${extGroup}))(?:\\|([^\\]]*))?\\]\\]`,
+    "gi" // extensions are case-insensitive; the name itself keeps its case
+  );
+
+  return text
+    .split("\n")
+    .map((line, index) => {
+      if (codeLines.has(index + 1)) return line; // inside a code block
+
+      // Mask inline code spans so backticked embeds aren't rewritten.
+      const spans: string[] = [];
+      const masked = line.replace(/`[^`\n]*`/g, (span) => {
+        spans.push(span);
+        return `\u0000${spans.length - 1}\u0000`;
+      });
+
+      const rewritten = masked.replace(embedRe, (_all, name: string, caption?: string) => {
+        // Obsidian embeds may carry a vault path (`Assets/Sources/x.png`) —
+        // the proxy takes the bare filename only.
+        const base = name.trim().split("/").pop() ?? name.trim();
+        const alt = (caption ?? "").trim();
+        return `![${alt}](/api/attachment?file=${encodeURIComponent(base)})`;
+      });
+
+      return rewritten.replace(/\u0000(\d+)\u0000/g, (_m, i: string) =>
+        spans[Number(i)] ?? ""
+      );
+    })
     .join("\n");
 }

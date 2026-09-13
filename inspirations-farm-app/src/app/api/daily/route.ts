@@ -7,6 +7,7 @@ import {
   modifyDailyJournal,
   insertIntoDailySection,
   insertIntoDailyNotesSection,
+  insertImageAfterDailyNote,
   loadDiaryTemplate,
   parseTasks,
   locateTask,
@@ -14,6 +15,7 @@ import {
   GitHubConflictError,
   type DailyTaskLocator,
 } from "@/lib/github";
+import { isSafeAttachmentFilename } from "@/lib/attachments";
 import { validatePin } from "@/lib/auth";
 import { getBeijingDateTimeString } from "@/lib/beijing-time";
 import { deleteTaskSubtreeAtLine } from "@/lib/cascade";
@@ -109,6 +111,51 @@ export async function POST(req: NextRequest) {
         sha: result.sha,
         content: result.content,
         time,
+      });
+    }
+
+    // ── Attach image to a note ──────────────────
+    if (body.action === "attachImage") {
+      const { date, time, text, occurrence, filename } = body;
+      if (
+        typeof date !== "string" ||
+        !/^\d{4}-\d{2}-\d{2}$/.test(date) ||
+        typeof time !== "string" ||
+        !/^\d{2}:\d{2}$/.test(time) ||
+        typeof text !== "string" ||
+        text.length === 0 ||
+        text.length > 2000 ||
+        typeof occurrence !== "number" ||
+        !Number.isInteger(occurrence) ||
+        occurrence < 0 ||
+        !isSafeAttachmentFilename(filename)
+      ) {
+        return Response.json(
+          { ok: false, error: "Invalid attachImage request" },
+          { status: 400 }
+        );
+      }
+
+      // The anchor (exact time + first-line text + occurrence) is resolved
+      // server-side inside modifyDailyJournal's 409-retry loop, so it always
+      // matches the content actually being written. Null = anchor or section
+      // not found — the note likely changed under us.
+      const result = await modifyDailyJournal(date, (c) =>
+        insertImageAfterDailyNote(c, { time, text, occurrence }, filename)
+      );
+      if (!result) {
+        return Response.json(
+          { ok: false, error: "未找到该条杂记（内容可能已变化），请刷新后重试" },
+          { status: 404 }
+        );
+      }
+
+      revalidatePath("/");
+      return Response.json({
+        ok: true,
+        path: result.path,
+        sha: result.sha,
+        content: result.content,
       });
     }
 

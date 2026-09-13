@@ -109,6 +109,41 @@ export async function githubFetch<T = unknown>(
   return res.json() as Promise<T>;
 }
 
+/** Raw-bytes variant of githubFetch for media (images). Uses the
+ *  `application/vnd.github.raw` media type so the Contents endpoint streams
+ *  the file bytes directly (works for files of any size, unlike the base64
+ *  JSON representation). Same auth headers and error mapping as githubFetch. */
+export async function githubFetchRaw(
+  path: string,
+  options: RequestInit = {}
+): Promise<ArrayBuffer> {
+  const { pat } = getConfig();
+  const url = `${GITHUB_API}${path}`;
+
+  const res = await fetch(url, {
+    ...options,
+    cache: "no-store",
+    headers: {
+      Authorization: `Bearer ${pat}`,
+      Accept: "application/vnd.github.raw",
+      "X-GitHub-Api-Version": "2022-11-28",
+      ...options.headers,
+    },
+  });
+
+  if (!res.ok) {
+    const body = await res.text();
+    const safeMessage = `GitHub API error ${res.status}`;
+    console.error(`[githubFetchRaw] ${path}:`, body.slice(0, 500));
+    if (res.status === 409) {
+      throw new GitHubConflictError(safeMessage);
+    }
+    throw new GitHubApiError(safeMessage, res.status);
+  }
+
+  return res.arrayBuffer();
+}
+
 // ── Base64 codec (GitHub Contents API exchanges base64-encoded UTF-8) ────
 
 /** Encode a UTF-8 string to base64 (for GitHub Contents API PUT bodies). */
@@ -119,6 +154,11 @@ export function encodeBase64(text: string): string {
 /** Decode a base64 string back to UTF-8 (for GitHub Contents API GET responses). */
 export function decodeBase64(b64: string): string {
   return Buffer.from(b64, "base64").toString("utf-8");
+}
+
+/** Encode raw bytes to base64 (binary uploads — e.g. image attachments). */
+export function encodeBase64Bytes(bytes: Uint8Array): string {
+  return Buffer.from(bytes).toString("base64");
 }
 
 // ── Raw API response shapes ─────────────────────────────────────────────

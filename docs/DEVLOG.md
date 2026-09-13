@@ -1,5 +1,34 @@
 # Dev Log — Inspirations Farm
 
+## 2026-09-13 — Jotting Image Attachments (杂记图片附件)
+
+Attach an uploaded image to a specific 今日杂记 entry: the image lands in `Assets/Sources` (Obsidian attachment folder, `ATTACHMENTS_DIR`-overridable), and a tab-indented `![[Pasted image YYYYMMDDHHmmss.png]]` embed is spliced directly after that note's block — so Obsidian renders the image under the note text, and the app renders it in the jottings timeline.
+
+### Markdown layer (`markdown-utils.ts`)
+- `DailyNote` gained `lineNumber`/`endLine` anchors, and `parseDailyNotes` is now **continuation-aware**: an indented non-blank line below a note bullet extends that note (image embeds, multi-line bodies). The rule is deliberately narrow — real journals contain column-0 plain bullets (AI planning notes) in the section that must never be swallowed as continuations; a blank line or any column-0 line closes the note. Parsing and the new `insertImageAfterDailyNote` share one internal `scanDailyNotes` scanner so they can never disagree about boundaries.
+- `insertImageAfterDailyNote(content, {time, text, occurrence}, filename)` locates the note by exact time + first-line text + occurrence index (duplicates disambiguated) inside `modifyDailyJournal`'s 409-retry loop — the anchor always resolves against the content actually being written. Miss → `null` → route 404 ("内容可能已变化，请刷新"). The embed splices in after the note's LAST continuation line (second image lands below the first); everything else stays byte-exact.
+- `transformWikilinkImages` rewrites `![[x.png]]`/`![[x.png|caption]]` to `![caption](/api/attachment?file=…)` before react-markdown — code-safe at both block level (mdast `collectCodeLines`) and inline level (backtick masking with NUL placeholders). Non-image wikilinks untouched; idempotent. Extension set (png/jpg/jpeg/webp/gif) matches exactly what the proxy will serve.
+
+### Upload & serving (`/api/attachment`, `attachments.ts`, `github-client.ts`)
+- POST: multipart upload with a streaming hard cap (`readLimitedBody`, 413) → **magic-byte sniffing** decides type/extension (client-declared MIME/filename ignored entirely; uploads always renamed) → Contents-API PUT (new `encodeBase64Bytes` binary base64; ~100MB API ceiling far above our 4MB cap). Same-second name collisions (GitHub 422) retry with `-2`…`-5` suffixes.
+- GET: `?file=<bare filename>` proxy. The server owns the directory (`ATTACHMENTS_DIR`), so the traversal surface is a filename allowlist regex (no `/`, `..`, dotfiles; supported extension). Bytes come back via `githubFetchRaw` (`Accept: application/vnd.github.raw`) — works for any size, unlike the base64 JSON representation.
+- **4MB cap, not 20MB**: production runs on Vercel, whose serverless functions cap request bodies at 4.5MB. The client's smart compression makes this invisible in practice.
+
+### Rendering (`proxied-image.tsx`, `markdown-renderer.tsx`)
+- The repo is private, so `<img src>` can't reach it — and it can't attach `x-app-pin` either. Instead of a signed-URL scheme (new secret + expiry surface for zero benefit), the custom `img` component fetches bytes through `apiFetch` (existing header auth, 401 → lock screen) and renders a `blob:` object URL, shared via a ~40-entry module-level LRU-ish cache. rehype-sanitize runs before component overrides, so the relative `/api/attachment?…` URL passes the default schema and the `blob:` URL never appears in markdown source.
+- Loading state (pulse placeholder), failure row ("图片加载失败"), click-to-open full size. `transformWikilinkImages` is applied inside the shared MarkdownRenderer, so inspiration cards gain image-embed rendering for free.
+
+### Client compression (`image-compress.ts`)
+Pure `planCompression` (unit-tested decision table) + canvas wrapper: GIF always passes through (re-encoding would flatten animation); ≤1MB untouched; larger decodes via `createImageBitmap` (fallback `<img>`+`decode()` — also covers HEIC on Safari), downscales to ≤2000px, alpha-scanned → WebP q0.85 when transparent (JPEG-with-white-matte fallback) else JPEG q0.85; steps quality down once if the result still exceeds 4MB. Object URLs for the `<img>` decode path stay alive until after `drawImage`.
+
+### UI (`jottings-card.tsx`)
+Per-note ghost attach button (`ImagePlus`; spinner while that note's upload runs) + one shared hidden file input carrying the pending anchor. Two-step flow: compress → upload (FormData, `retryOnNetworkError: false` — a retried multipart POST could double-upload) → attachImage → re-parse notes from the returned full content + broadcast the unchanged `daily:updated` payload shape. `apiFetch` now skips its JSON `Content-Type` default for FormData bodies (the browser must set the multipart boundary). A failed attach after a successful upload leaves the file in Assets/Sources as a harmless orphan (Obsidian-style; surfaced as an error, not auto-deleted).
+
+### Tests & docs
+`tests/markdown-utils.test.mjs` (+9: continuation parsing incl. the column-0-bullet regression using the real journal shape, EOF insert, occurrence disambiguation, anchor-miss → null, addNote append with embeds present, wikilink transform ×4); new `tests/attachments.test.mjs` (magic-byte sniff, Beijing filename generation, filename allowlist) and `tests/image-compress.test.mjs` (decision table). 68/68 green; tsc + eslint clean.
+
+---
+
 ## 2026-07-05 — v1.0.0: Audit, SRP Split, AST Refactor, Write Consistency
 
 A full hardening pass: a 5-step logic-audit fix, a single-responsibility split of the `github.ts` "god object", an mdast-AST rewrite of fragile line-regex section editing, and a fix for daily-write 409s / data-loss under GitHub's eventual consistency. Verified end-to-end in dev against the real repo.

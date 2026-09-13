@@ -42,6 +42,7 @@
 - **📄 富 Markdown 渲染** — `react-markdown` + `remark-gfm` + `@tailwindcss/typography`；灵感卡片与杂记用 prose 样式；todo 任务用内联安全渲染（无 prose，`<p>`→`<span>`，保持 flex 布局）
 - **🧮 数学公式渲染** — 行内 `$...$` 与块级 `$$...$$`，经 `remark-math` + `rehype-katex`；KaTeX CSS 全局引入（`globals.css`）；`output: "html"` 防止暴露 MathML/源码文本如 `{\displaystyle ...}`
 - **🗒️ 每日杂记** — 带时间戳的笔记追加到 `# 本日总结` 下的 `## 今日杂记`；在看板上以时间线渲染
+- **🖼️ 杂记图片附件** — 每条杂记可上传图片（≤1MB/GIF 直传，更大自动压缩到最长边 2000px），以 Obsidian 嵌入 `![[Pasted image YYYYMMDDHHmmss.png]]` 缩进插在该条目下方；存入 `Assets/Sources`（`ATTACHMENTS_DIR` 可配置）；应用内经 PIN 鉴权代理渲染（私有仓库），Obsidian 内原生显示
 - **📋 模板支持** — rollover 时从 GitHub 拉取 `Templates/Diary_Template.md`；支持 `{{date}}` / `{{DATE:YYYY-MM-DD}}` 与 `%%TODO_PLACEHOLDER%%` 占位符；路径可由 `DIARY_TEMPLATE_PATH` 环境变量配置；拉取失败回退内置模板
 - **🎧 专注播放队列** — 在独立设置页添加 Bilibili UGC 合集 URL；专注时仅播放音频，不展示标题、封面、画面、序号或原生播放器。支持随机换一首、真实历史上一首、暂停联动、收起弹窗继续播放和刷新恢复。
 - **📱 PWA** — 可安装到主屏，离线缓存，standalone 模式
@@ -146,6 +147,7 @@ FOCUS_AUDIO_RELAY_SIGNING_SECRET=与中继服务共享的长随机密钥
 Inspirations/            # 灵感 .md 文件
 Journal/Daily/           # 每日日记 .md 文件
 Templates/               # （可选）Diary_Template.md
+Assets/Sources/          # 杂记图片附件（ATTACHMENTS_DIR 可配置）
 Areas/FocusPlaylists/     # 专注合集配置（首次添加时自动创建）
 ```
 
@@ -186,7 +188,15 @@ npm run dev
 | POST | `{ date }` | 创建日记 |
 | POST | `{ ideaId, ideaTitle, date }` | 把灵感推入今日任务（去重：`ideaId` 已存在返回 `409`） |
 | POST | `{ action: "addNote", date, content }` | 给 `## 今日杂记` 追加带时间戳的笔记 |
+| POST | `{ action: "attachImage", date, time, text, occurrence, filename }` | 给指定杂记条目插入图片嵌入行（锚点未命中返回 `404`） |
 | PUT | `{ path, sha, content }` | 更新日记内容 |
+
+### /api/attachment
+
+| 方法 | 形式 | 说明 |
+|---|---|---|
+| POST | `multipart/form-data`，字段 `file` | 上传图片到 `ATTACHMENTS_DIR`（魔数校验、流式 413 上限 ~4MB、同秒冲突自动加 `-2` 后缀）→ `{ ok, filename, path, size }` |
+| GET | `?file=<文件名>` | 代理取回私有仓库中的图片字节（仅限附件目录内；服务端拼路径，文件名白名单校验） |
 
 ### /api/cron/rollover
 
