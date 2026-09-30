@@ -12,7 +12,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { apiFetch, AuthError } from "@/lib/api";
-import { formatBeijingDate, getBeijingDateString, getBeijingDateTimeString } from "@/lib/beijing-time";
+import { getBeijingDateString, getBeijingDateTimeString } from "@/lib/beijing-time";
 import { toast } from "@/app/toast";
 import { createEventId } from "@/lib/insights";
 import {
@@ -104,10 +104,18 @@ export function VerifyBench({ initialBoard }: Props) {
     boardRef.current = board;
   }, [board]);
 
-  // Persist every good board as the degraded-read snapshot.
-  useEffect(() => {
-    if (initialBoard) saveLastGood(initialBoard);
-  }, [initialBoard]);
+  // Adopt a server-refreshed board (router.refresh after induct/record) via
+  // React's sanctioned render-phase adjustment — the newest server prop always
+  // wins over transient local optimistic state.
+  const [lastInitial, setLastInitial] = useState(initialBoard);
+  if (initialBoard !== lastInitial) {
+    setLastInitial(initialBoard);
+    if (initialBoard) {
+      setBoard(initialBoard); // boardRef syncs via the board effect below
+      saveLastGood(initialBoard);
+    }
+  }
+
 
   const refetch = useCallback(async () => {
     try {
@@ -117,6 +125,9 @@ export function VerifyBench({ initialBoard }: Props) {
         setBoard(data.board);
         setStaleSince(null);
         saveLastGood(data.board);
+        window.dispatchEvent(new CustomEvent("insight:updated"));
+      } else {
+        setStaleSince((prev) => prev ?? getBeijingDateTimeString());
       }
     } catch (err) {
       if (!(err instanceof AuthError)) {
@@ -125,37 +136,71 @@ export function VerifyBench({ initialBoard }: Props) {
     }
   }, []);
 
+  // A behavior-line write (杂记/记录 mode) dispatches daily:updated — the
+  // behavior flow section and the evidence gate must follow within the session.
+  useEffect(() => {
+    let last = 0;
+    function onDailyUpdate() {
+      const now = Date.now();
+      if (now - last < 3000) return; // throttle — journal events can burst
+      last = now;
+      void refetch();
+    }
+    window.addEventListener("daily:updated", onDailyUpdate);
+    return () => window.removeEventListener("daily:updated", onDailyUpdate);
+  }, [refetch]);
+
+  /** Replay all pending entries. Permanent rejections (4xx — insight gone,
+   *  crown gate refused) are dropped with an explicit banner instead of being
+   *  retried forever; network/5xx failures stay queued. */
+  const replayOutbox = useCallback(async (): Promise<number> => {
+    return outboxReplay(async (entry) => {
+      const res = await apiFetch(
+        entry.kind === "verify" ? "/api/insights/verify" : "/api/insights/crown",
+        { method: "POST", body: JSON.stringify(entry.payload) }
+      );
+      if (res.status >= 400 && res.status < 500 && res.status !== 401) {
+        const data = await res.json().catch(() => ({}));
+        const detail = typeof data.error === "string" ? data.error : `HTTP ${res.status}`;
+        window.dispatchEvent(
+          new CustomEvent("insights:outbox-drop", { detail: { id: entry.id, detail } })
+        );
+        return; // resolved → the entry is removed from the outbox
+      }
+      if (!res.ok) throw new Error(`replay failed: ${res.status}`);
+    });
+  }, []);
+
   // Pending outbox count + replay on open / when back online.
   const refreshPending = useCallback(() => setPending(outboxPendingCount()), []);
   useEffect(() => {
     void Promise.resolve().then(refreshPending);
     if (outboxPendingCount() > 0 && navigator.onLine) {
-      void outboxReplay(async (entry) => {
-        const res = await apiFetch(
-          entry.kind === "verify" ? "/api/insights/verify" : "/api/insights/crown",
-          { method: "POST", body: JSON.stringify(entry.payload) }
-        );
-        if (!res.ok) throw new Error(`replay failed: ${res.status}`);
-      }).then((left) => {
+      void replayOutbox().then((left) => {
         setPending(left);
         if (left === 0) void refetch();
       });
     }
     function onOnline() {
-      void outboxReplay(async (entry) => {
-        const res = await apiFetch(
-          entry.kind === "verify" ? "/api/insights/verify" : "/api/insights/crown",
-          { method: "POST", body: JSON.stringify(entry.payload) }
-        );
-        if (!res.ok) throw new Error(`replay failed: ${res.status}`);
-      }).then(setPending);
+      void replayOutbox().then((left) => {
+        setPending(left);
+        if (left === 0) void refetch(); // drained — bring the board back up to date
+      });
+    }
+    function onDrop(event: Event) {
+      const detail = (event as CustomEvent<{ id: string; detail: string }>).detail;
+      setBanner(`有一条待同步提交被服务器拒绝，已从发件箱移除：${detail?.detail ?? "未知原因"}`);
+      refreshPending();
     }
     window.addEventListener("online", onOnline);
     window.addEventListener("insights:outbox", refreshPending);
+    window.addEventListener("insights:outbox-drop", onDrop);
     return () => {
       window.removeEventListener("online", onOnline);
       window.removeEventListener("insights:outbox", refreshPending);
+      window.removeEventListener("insights:outbox-drop", onDrop);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [refreshPending, refetch]);
 
   // Welcome-back (derived, no effect-setState): >14 days since the newest
@@ -169,9 +214,10 @@ export function VerifyBench({ initialBoard }: Props) {
     } catch {
       /* private mode — show anyway */
     }
-    const active = [...board.todayTop, ...board.sprouts];
-    if (active.length === 0) return false;
-    return !active.some((c) => daysSince(c.lastVerified ?? c.created, today) <= 14);
+    // Full active list, not the score-truncated top-15 — one freshly-verified
+    // low-score card must count as "not interrupted".
+    if (board.active.length === 0) return false;
+    return !board.active.some((c) => daysSince(c.lastVerified ?? c.created, today) <= 14);
   }, [board, today, welcomeDismissed]);
 
   // ── Verify flow ─────────────────────────────────────
@@ -329,7 +375,9 @@ export function VerifyBench({ initialBoard }: Props) {
       opts.crownable && card.status === "hypothesis" && card.vc >= 5 && card.fc === 0;
     const busy = busyCard === card.id;
     const evidenceOpen = evidenceOpenFor === card.id;
-    const candidates = evidenceCandidates.filter((e) => e.date === today || e.date === addDays(today, -1));
+    // Evidence window is the FULL 3-day behavior flow (plan 01 §2) —
+    // "早睡→次日不犯困" needs yesterday's and the day-before's lines.
+    const candidates = evidenceCandidates;
     return (
       <div
         key={card.id}
@@ -342,7 +390,7 @@ export function VerifyBench({ initialBoard }: Props) {
           {crownable && (
             <button
               onClick={() => void submitCrown(card)}
-              disabled={busy}
+              disabled={busy || readOnly}
               title="可加冕：连续 5 次验证通过、0 次证伪 — 点击加冕为真知"
               className="flex shrink-0 items-center gap-1 rounded-full bg-[var(--farm-green-soft)] px-2.5 py-1 text-[11px] font-medium text-[var(--farm-green)] transition-transform active:scale-95"
             >
@@ -395,7 +443,7 @@ export function VerifyBench({ initialBoard }: Props) {
                     void submitVerify(card, v, null);
                   }
                 }}
-                disabled={busy}
+                disabled={busy || readOnly}
                 className={`min-h-[34px] flex-1 touch-manipulation rounded-lg border border-[var(--farm-line)] bg-[var(--farm-paper)] text-xs font-medium text-[var(--farm-muted)] transition-colors hover:border-[var(--farm-green)] hover:text-[var(--farm-green)] disabled:opacity-40`}
                 title={VERDICT_UI[v].label}
               >
@@ -416,10 +464,17 @@ export function VerifyBench({ initialBoard }: Props) {
             )}
             <button
               onClick={() => void submitVerify(card, "confirm", null)}
-              disabled={busy}
+              disabled={busy || readOnly}
               className="min-h-[32px] w-full rounded-md px-2 py-1 text-left text-xs text-[var(--farm-muted)] hover:bg-[var(--farm-green-soft)]"
             >
               凭印象验证（不附证据）
+            </button>
+            <button
+              onClick={() => void submitVerify(card, "unobserved", null)}
+              disabled={busy || readOnly}
+              className="min-h-[32px] w-full rounded-md px-2 py-1 text-left text-xs text-[var(--farm-muted)] hover:bg-[var(--farm-green-soft)]"
+            >
+              👀 改记未观察
             </button>
             {candidates.map((c, i) => (
               <button
@@ -427,10 +482,10 @@ export function VerifyBench({ initialBoard }: Props) {
                 onClick={() =>
                   void submitVerify(card, "confirm", {
                     date: c.date,
-                    anchor: c.time,
+                    anchor: c.time.replace(":", ""), // anchor contract is HHmm
                   })
                 }
-                disabled={busy}
+                disabled={busy || readOnly}
                 className="min-h-[32px] w-full rounded-md px-2 py-1 text-left text-xs text-[var(--farm-ink)] hover:bg-[var(--farm-green-soft)]"
               >
                 {c.date.slice(5)} {c.time} · {c.text}
@@ -442,14 +497,20 @@ export function VerifyBench({ initialBoard }: Props) {
     );
   }
 
-  function addDays(date: string, delta: number): string {
-    const ms = Date.parse(`${date}T00:00:00+08:00`) + delta * 86_400_000;
-    return formatBeijingDate(new Date(ms));
-  }
 
   // ── Render ──────────────────────────────────────────
 
-  if (!board) {
+  /* Snapshot/readonly state is derived below: when the SSR bench failed we
+     inject the last-good localStorage board (打开永远有东西可看可判 — plan
+     02 §3) and flip readOnly on, so the whole existing render tree stays in
+     charge. Only a genuinely empty state (no board, no snapshot) gets a card
+     of its own. */
+  const snapshotFallback = !board ? loadLastGood() : null;
+  const readOnly = !board || !!staleSince;
+  const shownBoard = board ?? snapshotFallback?.board ?? null;
+
+  // Genuinely nothing to show (no SSR board and no local snapshot yet).
+  if (!shownBoard) {
     return (
       <Card className="farm-panel">
         <CardHeader className="pb-4 pt-1">
@@ -457,18 +518,26 @@ export function VerifyBench({ initialBoard }: Props) {
             <div className="farm-section-icon">
               <FlaskConical className="size-5" strokeWidth={1.8} />
             </div>
-            <div>
+            <div className="min-w-0 flex-1">
               <p className="farm-kicker mb-0.5">VERIFY BENCH</p>
               <CardTitle className="farm-display text-xl font-semibold text-[var(--farm-ink)]">
                 验证台
               </CardTitle>
             </div>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => void refetch()}
+              className="h-8 shrink-0 gap-1 text-xs text-[var(--farm-muted)] hover:bg-[var(--farm-green-soft)] hover:text-[var(--farm-green)]"
+            >
+              <RefreshCw className="h-3.5 w-3.5" />
+              重试
+            </Button>
           </div>
         </CardHeader>
         <CardContent>
-          <p className="flex items-center gap-2 rounded-lg bg-[var(--farm-paper-deep)] px-3 py-2 text-xs text-[var(--farm-muted)]">
-            <TriangleAlert className="h-3.5 w-3.5" />
-            数据截至 {staleSince ?? "—"}（GitHub 暂不可达，展示上次快照，验证已停用）
+          <p className="py-5 text-center text-xs text-[var(--farm-muted)]">
+            网络恢复后这里会出现你的假设与行为流。
           </p>
         </CardContent>
       </Card>
@@ -502,10 +571,15 @@ export function VerifyBench({ initialBoard }: Props) {
       </CardHeader>
 
       <CardContent className="space-y-3">
-        {staleSince && (
+        {(staleSince || snapshotFallback) && (
           <p className="flex items-center gap-2 rounded-lg bg-[var(--farm-paper-deep)] px-3 py-2 text-xs text-[var(--farm-muted)]">
             <TriangleAlert className="h-3.5 w-3.5 shrink-0" />
-            数据截至 {staleSince}，验证已停用
+            {snapshotFallback
+              ? `GitHub 暂不可达，验证已停用 · 以下为 ${snapshotFallback.savedAt} 的快照`
+              : `数据截至 ${staleSince}，可能不是最新（重试成功后自动恢复验证）`}
+            <button onClick={() => void refetch()} className="ml-auto shrink-0 underline">
+              重试
+            </button>
           </p>
         )}
         {banner && (
@@ -523,7 +597,14 @@ export function VerifyBench({ initialBoard }: Props) {
               <div>
                 <p className="text-sm font-medium text-[var(--farm-ink)]">欢迎回来 👋</p>
                 <p className="mt-0.5 text-xs leading-relaxed text-[var(--farm-muted)]">
-                  超过 14 天没有验证了。存活假设 {board.todayTop.length} 条，行为流在下方——挑一条最近的继续。
+                  超过 14 天没有验证了。存活假设 {shownBoard.active.length} 条，最近的几条：
+                  {shownBoard.active
+                    .slice()
+                    .sort((a, b) => b.score - a.score)
+                    .slice(0, 5)
+                    .map((c) => `「${c.statement}」`)
+                    .join(" ")}
+                  ——挑一条继续。
                 </p>
               </div>
               <button
@@ -582,41 +663,41 @@ export function VerifyBench({ initialBoard }: Props) {
         )}
 
         {/* 真知常驻 */}
-        {board.knowledge.length > 0 && (
+        {shownBoard.knowledge.length > 0 && (
           <section className="space-y-2">
             <p className="farm-kicker">TRUE KNOWLEDGE</p>
-            {board.knowledge.map((c) => renderCard(c, { compact: true }))}
+            {shownBoard.knowledge.map((c) => renderCard(c, { compact: true }))}
           </section>
         )}
 
         {/* 今日浮现 top15 */}
         <section className="space-y-2">
-          <p className="farm-kicker">TODAY · TOP {board.todayTop.length}</p>
-          {board.todayTop.length === 0 ? (
+          <p className="farm-kicker">TODAY · TOP {shownBoard.todayTop.length}</p>
+          {shownBoard.todayTop.length === 0 ? (
             <p className="py-3 text-center text-xs text-[var(--farm-muted)]">
               还没有存活假设——从杂记里「转洞察」种下第一颗。
             </p>
           ) : (
-            board.todayTop.map((c) => renderCard(c, { crownable: true }))
+            shownBoard.todayTop.map((c) => renderCard(c, { crownable: true }))
           )}
         </section>
 
         {/* 新芽 */}
-        {board.sprouts.length > 0 && (
+        {shownBoard.sprouts.length > 0 && (
           <section className="space-y-2">
             <p className="farm-kicker">SPROUTS · 新芽</p>
-            {board.sprouts.map((c) => renderCard(c, { compact: true }))}
+            {shownBoard.sprouts.map((c) => renderCard(c, { compact: true }))}
           </section>
         )}
 
         {/* 已证伪（折叠） */}
-        {board.falsified.length > 0 && (
+        {shownBoard.falsified.length > 0 && (
           <details className="rounded-xl border border-[var(--farm-line)] px-3 py-2">
             <summary className="cursor-pointer text-xs font-medium text-[var(--farm-muted)]">
-              已证伪（{board.falsified.length}）
+              已证伪（{shownBoard.falsified.length}）
             </summary>
             <div className="mt-2 space-y-2">
-              {board.falsified.map((c) => renderCard(c, { compact: true }))}
+              {shownBoard.falsified.map((c) => renderCard(c, { compact: true }))}
             </div>
           </details>
         )}
@@ -624,13 +705,13 @@ export function VerifyBench({ initialBoard }: Props) {
         {/* 近 3 天行为流 */}
         <section className="space-y-2">
           <p className="farm-kicker">BEHAVIOR · 近 3 天行为流</p>
-          {board.behaviorFlow.length === 0 ? (
+          {shownBoard.behaviorFlow.length === 0 ? (
             <p className="py-3 text-center text-xs text-[var(--farm-muted)]">
               还没有 📌 行为记录——杂记 tab 顶部切到「记录」模式即可。
             </p>
           ) : (
             <div className="space-y-0.5">
-              {board.behaviorFlow.map((e, i) => (
+              {shownBoard.behaviorFlow.map((e, i) => (
                 <p key={i} className="text-xs leading-relaxed text-[var(--farm-muted)]">
                   <span className="mr-2 font-mono text-[10px]">{e.date.slice(5)} {e.time}</span>
                   {e.kind === "behavior" ? "📌" : e.verdict === "confirm" ? "✅" : e.verdict === "refute" ? "❌" : "👀"}{" "}

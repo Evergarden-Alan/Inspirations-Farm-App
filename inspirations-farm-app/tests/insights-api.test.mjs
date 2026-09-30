@@ -104,6 +104,24 @@ test("crown route: 401 without PIN, 400 without fields", async () => {
   assert.equal((await POST(fakeRequest({ insightId: "INS-x" }))).status, 400);
 });
 
+test("routes: service 404 passes through as HTTP 404 (verify + crown)", async () => {
+  const notFound = verifyDeps({
+    readInsight: async () => null,
+  });
+  const verify = createVerifyRoute(notFound);
+  const verifyRes = await verify(
+    fakeRequest({ insightId: "INS-00000000-000000", verdict: "confirm", clientEventId: "ev-nf" })
+  );
+  assert.equal(verifyRes.status, 404);
+  assert.equal((await verifyRes.json()).code, "INSIGHT_NOT_FOUND");
+
+  const crown = createCrownRoute({ ...notFound });
+  const crownRes = await crown(
+    fakeRequest({ insightId: "INS-00000000-000000", clientEventId: "ev-nf" })
+  );
+  assert.equal(crownRes.status, 404);
+});
+
 // ── /api/insights (induct + bench) ──────────────────────
 
 test("insights route: POST invalid statement → 400; valid → 200 with id", async () => {

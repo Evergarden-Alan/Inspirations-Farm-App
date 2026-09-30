@@ -248,11 +248,15 @@ export async function readInsightFile(
 }
 
 /** Structured frontmatter update (setFrontmatterField, never whole-doc regex):
- *  re-reads under withConflictRetry, applies the patch, re-serializes. */
+ *  re-reads under withConflictRetry, applies the patch, re-serializes.
+ *  `message` must carry the canonical commit shape (verify(INS-x): … / Crown
+ *  INS-x … / Reconcile INS-x from events …) — scripts/verify-insights.mjs
+ *  asserts every Insights/ commit against those rules. */
 export async function updateInsightFrontmatter(
   insightId: string,
   updates: Partial<InsightFrontmatter>,
-  deps: InsightsGithubDeps = {}
+  deps: InsightsGithubDeps = {},
+  message = `Update INS frontmatter ${insightId}`
 ): Promise<{ sha: string }> {
   const d = resolveDeps(deps);
   const path = `Insights/${insightId}.md`;
@@ -265,7 +269,7 @@ export async function updateInsightFrontmatter(
     for (const [field, value] of Object.entries(updates)) {
       content = setFrontmatterField(content, field, value);
     }
-    return d.writeFile(path, `Update INS frontmatter ${insightId}`, content, file.sha);
+    return d.writeFile(path, message, content, file.sha);
   });
 }
 

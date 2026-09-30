@@ -31,21 +31,22 @@ const appRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 // ── Environment (no secret is ever printed) ─────────────
 
 function loadEnv() {
-  const env = { ...process.env };
   const envLocal = join(appRoot, ".env.local");
   if (existsSync(envLocal)) {
     for (const line of readFileSync(envLocal, "utf8").split("\n")) {
       const m = /^([A-Z0-9_]+)=(.*)$/.exec(line.trim());
-      if (m && !(m[1] in env)) env[m[1]] = m[2];
+      // Write back into process.env — the domain layer's getConfig() reads it
+      // from there, so .env.local-only setups work without a deployed URL.
+      if (m && process.env[m[1]] === undefined) process.env[m[1]] = m[2];
     }
   }
   for (const key of ["GITHUB_PAT", "REPO_OWNER", "REPO_NAME"]) {
-    if (!env[key]) {
+    if (!process.env[key]) {
       console.error(`Missing ${key} (environment or .env.local)`);
       process.exit(2);
     }
   }
-  return env;
+  return process.env;
 }
 
 // ── Commit-structure invariants ─────────────────────────

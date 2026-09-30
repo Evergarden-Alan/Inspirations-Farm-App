@@ -47,12 +47,23 @@ export function createVerifyRoute(deps: InsightsServiceDependencies = {}) {
           { status: 400 }
         );
       }
+      // Source contract: date YYYY-MM-DD, anchor HHmm (4 digits, no colon).
+      // Anything else must 400 here — an invalid source would otherwise fall
+      // through to parseVerifications as a permanently damaged line.
       const source =
         body.source &&
         typeof body.source.date === "string" &&
-        (typeof body.source.anchor === "string" || body.source.anchor === null)
+        /^\d{4}-\d{2}-\d{2}$/.test(body.source.date) &&
+        (body.source.anchor === null ||
+          (typeof body.source.anchor === "string" && /^\d{4}$/.test(body.source.anchor)))
           ? { date: body.source.date, anchor: body.source.anchor }
           : null;
+      if (body.source && !source) {
+        return Response.json(
+          { ok: false, error: "source must be { date: YYYY-MM-DD, anchor: HHmm | null }" },
+          { status: 400 }
+        );
+      }
 
       const result = await applyVerification(
         {

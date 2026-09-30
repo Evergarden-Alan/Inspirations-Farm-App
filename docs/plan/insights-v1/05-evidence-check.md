@@ -54,3 +54,13 @@
 - D 层 agent 的本地文件工具受限，改用 GitHub 镜像仓库 `Evergarden-Alan/Inspirations-Farm-App` 核实；其 HEAD `d4b54c8`（2026-09-13）与本地快照完全一致且工作区 clean，内容等同。
 - 所有涉及 `.env.local` 的核实只确认变量名存在与否，未读取、未记录任何 secret 值。
 - 行号容差 ±20 行；除注明外行号全部命中。
+
+## 实现期偏离登记（2026-10-01，M0-M4 实施后）
+
+以下偏离已经实现审查确认并有意保留，恢复会话无需重新裁决：
+
+1. **applyVerification 步骤 0 不读近 3 天日记**（计划 01 §2 伪代码含 readRecentJournals(3)）：证据展示在 bench 读侧（data.ts 已读），证据门槛是 UI 软约束，服务端读 3 个日记 GET 只耗 maxDuration 余量。已由两路并行读（stream+INS）替代。
+2. **行为记录(📌)的 commit message 是通用 `Update daily journal`**（计划 01 §2 要求 record 消息含行为行锚信息）：行为行经 modifyDailyJournal 与其他日记写共用通道；verify:insights 只断言 Insights/ 路径，record 不变量暂无断言方。v2 若需要，经 modifyDailyJournal 透传 message。
+3. **invariant 冲突标记扫描范围为近 3 天日记**（计划写「扫 Journal/ 下」）：旧文件冷、桌面 1 分钟 pull 收敛，全库扫描成本不成立；报告 scope 字段已披露范围。
+4. **verify/crown 响应无 board 字段**（计划 03 T3.2 要求）：客户端 refetch 一次 GET 代替，功能等效、多一次往返；如需省 RTT，在服务层写②成功后组装 board 附入。
+5. **欢迎回来卡片为 bench 内联横幅**（计划 T4.4 名为 welcome-back-card.tsx 独立文件）：已含 top5 存活假设列表（board.active 全量、按 score 排序取 5）与按日 dismiss；独立文件化是纯重构。

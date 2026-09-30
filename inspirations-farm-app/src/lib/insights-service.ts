@@ -224,7 +224,8 @@ export async function applyVerification(
         status: mergedStatus(insight.frontmatter.status, mine.status),
         sources: toSourceStrings(visible.valid, input.insightId),
       },
-      gh
+      gh,
+      message // write-② carries the same canonical verify(INS-x) shape (≤3-commit rule)
     );
   } catch (err) {
     // Stale-replica exhaustion or a write failure — data is safe in the
@@ -363,7 +364,8 @@ export async function crownInsight(
         status: "knowledge",
         sources: toSourceStrings(visibleAfter.valid, input.insightId),
       },
-      gh
+      gh,
+      `Crown ${input.insightId} to knowledge` // ≤2-commit rule: same shape as write-①
     );
   } catch (err) {
     console.error(

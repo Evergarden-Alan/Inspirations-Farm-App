@@ -69,6 +69,10 @@ export interface BenchBoard {
   /** Today's top-15 by score (hypothesis + verified; knowledge & falsified
    *  have their own sections). */
   todayTop: BenchCard[];
+  /** FULL active list (hypothesis + verified, untruncated) — for whole-board
+   *  judgments like the welcome-back check that must not depend on the
+   *  score-truncated top-15. */
+  active: BenchCard[];
   /** created < 7d and vc = 0. */
   sprouts: BenchCard[];
   falsified: BenchCard[];
@@ -111,8 +115,10 @@ function evidenceFor(
   }
   const day = behaviorByDate.find((d) => d.date === parsed.date);
   const anchor = parsed.anchor ?? ""; // parseSourceString guarantees @HHmm
+  // BehaviorRecord.time is "HH:mm"; the anchor contract is "HHmm" — normalize
+  // both sides or no real record ever matches (review blocker, 2026-10-01).
   const candidates = (day?.records ?? [])
-    .filter((r) => r.time === anchor && r.kind === "behavior")
+    .filter((r) => r.time.replace(":", "") === anchor && r.kind === "behavior")
     .map((r) => ({ time: r.time, text: r.text }));
   return {
     raw,
@@ -213,6 +219,7 @@ export function buildBoard(input: BoardInput): BenchBoard {
     builtAt: input.builtAt,
     knowledge,
     todayTop,
+    active,
     sprouts,
     falsified,
     behaviorFlow,

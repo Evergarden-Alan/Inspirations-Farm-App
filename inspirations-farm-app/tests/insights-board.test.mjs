@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import { buildBoard } from "../src/lib/insights-board.ts";
+import { parseBehaviorRecords } from "../src/lib/insights-daily.ts";
 
 const TODAY = "2026-10-01";
 const BUILT_AT = "2026-10-01T09:00:00+08:00";
@@ -36,15 +37,21 @@ function verifyEvent(id, insight, overrides = {}) {
   };
 }
 
+// Built from the REAL parser output — the review caught a fixture that used
+// synthetic "HHmm" times, which let evidenceFor's HHmm/HH:mm mismatch hide.
+const BEHAVIOR_JOURNAL = `# 本日总结
+
+## 行为记录
+
+- **21:05** 📌 上床睡觉
+- **21:05** 📌 备用行为行
+
+## 今日杂记
+
+- **22:00** ✅ INS-A 命题：ok
+`;
 const BEHAVIOR = [
-  {
-    date: "2026-09-30",
-    records: [
-      { time: "2105", kind: "behavior", verdict: null, insightId: null, text: "上床睡觉", lineNumber: 3 },
-      { time: "2105", kind: "behavior", verdict: null, insightId: null, text: "备用行为行", lineNumber: 4 },
-      { time: "2200", kind: "trace", verdict: "confirm", insightId: "INS-A", text: "INS-A 命题：ok", lineNumber: 5 },
-    ],
-  },
+  { date: "2026-09-30", records: parseBehaviorRecords(BEHAVIOR_JOURNAL) },
 ];
 
 test("board: five sections route by status; counters come from the replay", () => {
@@ -76,6 +83,7 @@ test("board: five sections route by status; counters come from the replay", () =
   assert.deepEqual(board.falsified.map((c) => c.id), ["INS-F"]);
   // INS-A (vc=2, recent) outranks INS-B (vc=0)
   assert.deepEqual(board.todayTop.map((c) => c.id), ["INS-A", "INS-B"]);
+  assert.deepEqual(board.active.map((c) => c.id), ["INS-A", "INS-B"]); // untruncated for welcome checks
   // sprout: created <7d, vc=0, hypothesis only
   assert.deepEqual(board.sprouts.map((c) => c.id), ["INS-B"]);
   assert.equal(board.damagedEvents, 1);

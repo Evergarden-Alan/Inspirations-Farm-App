@@ -28,7 +28,13 @@ function readAll(): OutboxEntry[] {
 }
 
 function writeAll(entries: OutboxEntry[]): void {
-  localStorage.setItem(OUTBOX_KEY, JSON.stringify(entries));
+  // Best-effort persistence (private mode / quota): a failed save must never
+  // break the actual submit — the entry simply won't survive a reload.
+  try {
+    localStorage.setItem(OUTBOX_KEY, JSON.stringify(entries));
+  } catch {
+    /* storage unavailable */
+  }
   window.dispatchEvent(
     new CustomEvent("insights:outbox", { detail: { count: entries.length } })
   );

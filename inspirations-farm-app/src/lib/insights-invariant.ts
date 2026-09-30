@@ -132,11 +132,14 @@ export async function reconcile(
   for (const [id, entries] of perFile) {
     const fields: Record<string, unknown> = {};
     for (const e of entries) fields[e.field] = e.replayValue;
+    const vc = entries.find((d) => d.field === "verify_count")?.replayValue;
+    const fc = entries.find((d) => d.field === "falsify_count")?.replayValue;
     try {
       await updateInsightFrontmatter(
         id,
         fields as Parameters<typeof updateInsightFrontmatter>[1],
-        deps
+        deps,
+        `Reconcile ${id} from events (vc=${vc ?? "?"} fc=${fc ?? "?"})`
       );
       reconciled.push(id);
     } catch {
@@ -144,19 +147,18 @@ export async function reconcile(
     }
   }
 
-  const vc = (id: string) => {
-    const e = perFile.get(id)?.find((d) => d.field === "verify_count");
-    return e ? e.replayValue : "?";
-  };
-  const fc = (id: string) => {
-    const e = perFile.get(id)?.find((d) => d.field === "falsify_count");
-    return e ? e.replayValue : "?";
-  };
   return {
     reconciled,
     skipped,
     detail: reconciled.length
-      ? reconciled.map((id) => `Reconcile ${id} from events (vc=${vc(id)} fc=${fc(id)})`).join("; ")
+      ? reconciled
+          .map((id) => {
+            const entries = perFile.get(id) ?? [];
+            const vc = entries.find((d) => d.field === "verify_count")?.replayValue ?? "?";
+            const fc = entries.find((d) => d.field === "falsify_count")?.replayValue ?? "?";
+            return `Reconcile ${id} from events (vc=${vc} fc=${fc})`;
+          })
+          .join("; ")
       : "no drift to reconcile",
   };
 }
