@@ -110,12 +110,19 @@ const defaultWriteFile = (
 
 const defaultListInsightPaths = async (): Promise<string[]> => {
   const { owner, repo } = getConfig();
-  const items = await githubFetch<
-    { name: string; path: string; type: string }[]
-  >(`/repos/${owner}/${repo}/contents/${INSIGHTS_DIR}`);
-  return items
-    .filter((i) => i.type === "file" && i.name.endsWith(".md"))
-    .map((i) => i.path);
+  try {
+    const items = await githubFetch<
+      { name: string; path: string; type: string }[]
+    >(`/repos/${owner}/${repo}/contents/${INSIGHTS_DIR}`);
+    return items
+      .filter((i) => i.type === "file" && i.name.endsWith(".md"))
+      .map((i) => i.path);
+  } catch (err) {
+    // No Insights/ directory yet = zero insights, not an error — the dir
+    // materializes with the first inducted INS.
+    if (err instanceof GitHubApiError && err.status === 404) return [];
+    throw err;
+  }
 };
 
 function resolveDeps(deps: InsightsGithubDeps = {}): Required<InsightsGithubDeps> {
