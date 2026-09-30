@@ -482,6 +482,10 @@ export async function syncIdeasState(
  * Append a timestamped patch line to an inspiration file's ## 追加记录 section.
  * If the section doesn't exist, creates it at the end of the file.
  * Fetches the current SHA internally — the caller doesn't need to provide it.
+ *
+ * The whole read-modify-write runs in withConflictRetry: on a 409 (stale SHA)
+ * the closure re-GETs fresh content and re-applies the append, same contract
+ * as modifyDailyJournal.
  */
 export async function appendInspirationPatch(
   filePath: string,
@@ -489,40 +493,43 @@ export async function appendInspirationPatch(
 ): Promise<{ sha: string; patch: InspirationPatch }> {
   const { owner, repo } = getConfig();
 
-  // Fetch current content + sha (same pattern as archiveInspiration)
-  const data = await githubFetch<{
-    sha: string;
-    content: string;
-    encoding: string;
-  }>(`/repos/${owner}/${repo}/contents/${filePath}`);
-
-  if (data.encoding !== "base64") {
-    throw new Error(`Unexpected encoding: ${data.encoding}`);
-  }
-  const raw = decodeBase64(data.content);
-
   const timeStr = getBeijingDateTimeString().slice(0, 16); // "YYYY-MM-DD HH:mm"
   const patchLine = `- **${timeStr}** ${patchContent}`;
-  const updated = appendInspirationPatchLine(raw, patchLine);
-  const encoded = encodeBase64(updated);
 
-  const result = await githubFetch<{ content: { sha: string } }>(
-    `/repos/${owner}/${repo}/contents/${filePath}`,
-    {
-      method: "PUT",
-      body: JSON.stringify({
-        message: `Append inspiration patch`,
-        content: encoded,
-        sha: data.sha,
-      }),
-      headers: { "Content-Type": "application/json" },
+  return withConflictRetry(async () => {
+    // Fetch current content + sha (same pattern as archiveInspiration)
+    const data = await githubFetch<{
+      sha: string;
+      content: string;
+      encoding: string;
+    }>(`/repos/${owner}/${repo}/contents/${filePath}`);
+
+    if (data.encoding !== "base64") {
+      throw new Error(`Unexpected encoding: ${data.encoding}`);
     }
-  );
+    const raw = decodeBase64(data.content);
 
-  return {
-    sha: result.content.sha,
-    patch: { time: timeStr, content: patchContent },
-  };
+    const updated = appendInspirationPatchLine(raw, patchLine);
+    const encoded = encodeBase64(updated);
+
+    const result = await githubFetch<{ content: { sha: string } }>(
+      `/repos/${owner}/${repo}/contents/${filePath}`,
+      {
+        method: "PUT",
+        body: JSON.stringify({
+          message: `Append inspiration patch`,
+          content: encoded,
+          sha: data.sha,
+        }),
+        headers: { "Content-Type": "application/json" },
+      }
+    );
+
+    return {
+      sha: result.content.sha,
+      patch: { time: timeStr, content: patchContent },
+    };
+  });
 }
 
 // ── Daily Journal ─────────────────────────────────────
