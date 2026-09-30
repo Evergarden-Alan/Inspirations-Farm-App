@@ -268,3 +268,29 @@ test("domain constants: layout matches the plan", () => {
   assert.equal(INSIGHTS_EVENT_STREAM_PATH, "Insights/verifications.jsonl");
   assert.equal(INSIGHT_TYPE, "insight");
 });
+
+test("replay: lastVerified takes the MAX ts, not file order (outage catch-up events)", () => {
+  // A hand-added catch-up event written AFTER a later one must not drag the
+  // decay baseline forward (plan 01 §4 降级协议).
+  const events = parseVerifications(
+    toLines([
+      verifyLine({ id: "ev-late", ts: "2026-10-03T21:00:00+08:00" }),
+      verifyLine({ id: "ev-catchup", ts: "2026-10-01T08:00:00+08:00", verdict: "refute" }), // older ts, later in file
+    ])
+  ).valid;
+  const counts = replayEvents(events);
+  assert.equal(counts[ID].lastVerified, "2026-10-03T21:00:00+08:00");
+  assert.equal(counts[ID].fc, 1); // the catch-up refute still counts
+});
+
+test("replay: per-insight isolation — other insights' events never leak", () => {
+  const events = parseVerifications(
+    toLines([
+      verifyLine(),
+      verifyLine({ id: "ev-other", insight: "INS-OTHER-000000", verdict: "refute", ts: "2026-10-01T08:00:00+08:00" }),
+    ])
+  ).valid;
+  const counts = replayEvents(events);
+  assert.equal(counts[ID].fc, 0);
+  assert.equal(counts["INS-OTHER-000000"].fc, 1);
+});

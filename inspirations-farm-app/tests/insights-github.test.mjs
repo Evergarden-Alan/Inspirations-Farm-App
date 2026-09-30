@@ -90,7 +90,7 @@ test("append: retries on 409 and re-applies the same transform (withConflictRetr
   await appendVerification(verifyEvent(), vault);
   const rawWrite = vault.writeFile;
   let firstCall = true;
-  vault.writeFile = async (path, message, content, sha) => {
+  vault.writeFile = async (path, message, content) => {
     if (firstCall) {
       firstCall = false;
       // concurrent write lands between our GET and PUT
@@ -263,4 +263,34 @@ test("readVerifications: returns raw content + parsed triple", async () => {
   assert.ok(content.includes("ev-20260930213501-2f8a"));
   assert.equal(parsed.valid.length, 1);
   assert.equal(parsed.damaged, 0);
+});
+
+// ── Review-hardened pins ────────────────────────────────
+
+test("append: normalizes a missing trailing newline (hand-written jsonl, outage backlog)", async () => {
+  const vault = memoryVault({
+    // Obsidian hand-edited lines during an outage often lack the trailing \n
+    "Insights/verifications.jsonl": '{"id":"ev-handwritten","type":"verify","ts":"2026-09-30T12:00:00+08:00","insight":"INS-X","verdict":"confirm","source":null,"note":null}',
+  });
+  const ev = verifyEvent({ id: "ev-appended" });
+  await appendVerification(ev, vault);
+  const parsed = parseVerifications(vault.files.get("Insights/verifications.jsonl").content);
+  assert.equal(parsed.damaged, 0);
+  assert.deepEqual(parsed.valid.map((e) => e.id), ["ev-handwritten", "ev-appended"]);
+});
+
+test("append: collapses multiple trailing blank lines before appending", async () => {
+  const vault = memoryVault({ "Insights/verifications.jsonl": '{"id":"ev-a","type":"verify","ts":"2026-09-30T12:00:00+08:00","insight":"INS-X","verdict":"confirm","source":null,"note":null}\n\n\n' });
+  await appendVerification(verifyEvent({ id: "ev-b" }), vault);
+  const parsed = parseVerifications(vault.files.get("Insights/verifications.jsonl").content);
+  assert.equal(parsed.damaged, 0);
+  assert.equal(parsed.valid.length, 2);
+});
+
+test("createInsightFile: duplicate id surfaces (no retry) — mock fidelity note: the real API answers 422 for a null-sha PUT on an existing file, the memory vault approximates it with 409; the contract under test is 'surfaces, never retried'", async () => {
+  const vault = memoryVault({ [`Insights/${ID}.md`]: insFile() });
+  await assert.rejects(
+    createInsightFile(JSON.parse('{"id":"' + ID + '"}'), "body", vault),
+    (err) => err instanceof GitHubConflictError || err?.status === 422
+  );
 });

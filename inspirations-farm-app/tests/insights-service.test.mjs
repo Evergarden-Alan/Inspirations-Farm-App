@@ -10,7 +10,6 @@ import {
 import { GitHubConflictError } from "../src/lib/github-client.ts";
 import matter from "gray-matter";
 import { MATTER_OPTS } from "../src/lib/markdown-utils.ts";
-import { InsightsStaleReadError } from "../src/lib/insights-github.ts";
 import { parseVerifications } from "../src/lib/insights-config.ts";
 
 const ID = "INS-20260930-213501";
@@ -149,9 +148,8 @@ test("matrix 格① write-① fails → VERIFY_CONFLICT 503, zero other writes",
 test("matrix 格③ write-② fails → countsSynced:false, event persists, write-③ still runs", async () => {
   const h = harness();
   seedInsight(h);
-  h.deps.gh.writeFile = async (path, message, content, sha) => {
+  h.deps.gh.writeFile = async (path, _message, content) => {
     if (path !== STREAM) throw new Error("frontmatter write failed (injected)");
-    const f = h.files.get(path);
     const next = { sha: path + "-sha-x", content };
     h.files.set(path, next);
     return { sha: next.sha };
@@ -358,5 +356,203 @@ test("induct: rejects multi-line or empty statements (400)", async () => {
   await assert.rejects(
     createInsightFromText({ statement: "   " }, h.deps),
     (err) => err.code === "INVALID_STATEMENT"
+  );
+});
+
+// ── Review-hardened pins (mutation-verified gaps) ───────
+
+test("write-② replays the VISIBLE stream — a concurrent verify's counts survive", async () => {
+  const h = harness();
+  seedInsight(h);
+  // After write-① lands, a concurrent confirm from another device enters the
+  // stream before our visibility read — the replay must include it.
+  const realAppend = h.deps.appendEvent ?? (await import("../src/lib/insights-github.ts")).appendVerification;
+  h.deps.appendEvent = async (ev, gh, message) => {
+    const out = await realAppend(ev, gh, message);
+    const f = h.files.get(STREAM);
+    h.files.set(STREAM, {
+      sha: f.sha,
+      content: f.content + JSON.stringify({
+        id: "ev-concurrent", type: "verify", ts: "2026-09-30T21:36:00+08:00",
+        insight: ID, verdict: "confirm", source: { date: "2026-09-30", anchor: "2200" }, note: null,
+      }) + "\n",
+    });
+    return out;
+  };
+  const result = await applyVerification(
+    { insightId: ID, verdict: "confirm", source: { date: "2026-09-30", anchor: "2105" }, clientEventId: EV },
+    h.deps
+  );
+  assert.equal(result.countsSynced, true);
+  const fm = readFm(h);
+  assert.equal(fm.verify_count, 2); // ours + the concurrent one — NOT the stale snapshot's 1
+  assert.deepEqual(fm.sources.sort(), [
+    "Journal/Daily/2026-09-30.md@2105",
+    "Journal/Daily/2026-09-30.md@2200",
+  ]);
+});
+
+test("write-② recovers when the stale replica clears within the backoff budget", async () => {
+  const h = harness({ staleReads: 1 }); // one stale read, then fresh
+  seedInsight(h);
+  const result = await applyVerification(
+    { insightId: ID, verdict: "confirm", clientEventId: EV },
+    h.deps
+  );
+  assert.equal(result.countsSynced, true);
+  assert.equal(readFm(h).verify_count, 1);
+});
+
+test("sources dedup + cross-insight isolation (write-② owns the field)", async () => {
+  const h = harness();
+  seedInsight(h);
+  seedStream(h, [
+    { id: "ev-1", type: "verify", ts: "2026-09-30T08:00:00+08:00", insight: ID, verdict: "confirm", source: { date: "2026-09-30", anchor: "0800" }, note: null },
+    { id: "ev-2", type: "verify", ts: "2026-09-30T09:00:00+08:00", insight: ID, verdict: "confirm", source: { date: "2026-09-30", anchor: "0800" }, note: null }, // same anchor
+    { id: "ev-3", type: "verify", ts: "2026-09-30T09:30:00+08:00", insight: "INS-OTHER-000000", verdict: "confirm", source: { date: "2026-09-30", anchor: "0930" }, note: null }, // other insight
+  ]);
+  const result = await applyVerification(
+    { insightId: ID, verdict: "confirm", clientEventId: EV },
+    h.deps
+  );
+  assert.equal(result.countsSynced, true);
+  const fm = readFm(h);
+  assert.equal(fm.verify_count, 3); // 3 confirms for THIS insight
+  assert.deepEqual(fm.sources, ["Journal/Daily/2026-09-30.md@0800"]); // deduped, no INS-OTHER pointer
+});
+
+test("canonical commit messages: cumulative vc, unobserved shape", async () => {
+  const h = harness();
+  seedInsight(h);
+  seedStream(h, [
+    { id: "ev-1", type: "verify", ts: "2026-09-30T08:00:00+08:00", insight: ID, verdict: "confirm", source: null, note: null },
+    { id: "ev-2", type: "verify", ts: "2026-09-30T09:00:00+08:00", insight: ID, verdict: "confirm", source: null, note: null },
+  ]);
+  await applyVerification({ insightId: ID, verdict: "confirm", clientEventId: EV }, h.deps);
+  assert.equal(h.calls.writes[0].message, `verify(${ID}): confirm +1 (vc=3)`);
+
+  const h2 = harness();
+  seedInsight(h2);
+  await applyVerification({ insightId: ID, verdict: "unobserved", clientEventId: EV }, h2.deps);
+  assert.equal(h2.calls.writes[0].message, `verify(${ID}): unobserved`);
+});
+
+test("crown write-① conflict → 503, zero other writes", async () => {
+  const h = harness();
+  seedStream(h, fiveConfirms());
+  seedInsight(h, insFrontmatter({ verify_count: 5 }));
+  h.deps.gh.writeFile = async () => {
+    throw new GitHubConflictError("GitHub API error 409");
+  };
+  await assert.rejects(
+    crownInsight({ insightId: ID, clientEventId: "ev-crown-x" }, h.deps),
+    (err) => err instanceof InsightsServiceError && err.code === "VERIFY_CONFLICT" && err.status === 503
+  );
+  assert.deepEqual(h.calls.writes, []);
+});
+
+test("crown write-② fails → countsSynced:false, event stays in the stream", async () => {
+  const h = harness();
+  seedStream(h, fiveConfirms());
+  seedInsight(h, insFrontmatter({ verify_count: 5 }));
+  h.deps.gh.writeFile = async (path, _message, content) => {
+    if (path !== STREAM) throw new Error("frontmatter write failed (injected)");
+    const next = { sha: path + "-sha-x", content };
+    h.files.set(path, next);
+    return { sha: next.sha };
+  };
+  const result = await crownInsight({ insightId: ID, clientEventId: "ev-crown-y" }, h.deps);
+  assert.equal(result.countsSynced, false);
+  assert.equal(parseVerifications(h.files.get(STREAM).content).valid.filter((e) => e.type === "crown").length, 1);
+});
+
+test("crown of unknown id → 404, zero writes", async () => {
+  const h = harness();
+  await assert.rejects(
+    crownInsight({ insightId: ID, clientEventId: "ev-crown-z" }, h.deps),
+    (err) => err.code === "INSIGHT_NOT_FOUND" && err.status === 404
+  );
+  assert.deepEqual(h.calls.writes, []);
+});
+
+test("crown retry with the same clientEventId → already_crowned, no second event", async () => {
+  const h = harness();
+  seedStream(h, fiveConfirms());
+  seedInsight(h, insFrontmatter({ verify_count: 5 })); // frontmatter still hypothesis
+  // first crown lands its event but "fails" write-② (frontmatter stays hypothesis)
+  h.deps.gh.writeFile = async (path, _message, content) => {
+    if (path !== STREAM) throw new Error("frontmatter write failed (injected)");
+    const next = { sha: path + "-sha-x", content };
+    h.files.set(path, next);
+    return { sha: next.sha };
+  };
+  await crownInsight({ insightId: ID, clientEventId: "ev-crown-retry" }, h.deps);
+  // retry with the SAME id after write-② recovered
+  delete h.deps.gh.writeFile;
+  const result = await crownInsight({ insightId: ID, clientEventId: "ev-crown-retry" }, h.deps);
+  assert.deepEqual(result, { ok: true, already_crowned: true, countsSynced: false });
+  const crownEvents = parseVerifications(h.files.get(STREAM).content).valid.filter((e) => e.type === "crown");
+  assert.equal(crownEvents.length, 1); // ≤2 commits invariant preserved
+});
+
+test("crown outranks the sticky falsified when the stream carries a crown event", async () => {
+  const h = harness();
+  seedStream(h, [
+    { id: "ev-k", type: "crown", ts: "2026-09-29T20:00:00+08:00", insight: ID, from: "hypothesis", to: "knowledge", source: null, note: null },
+  ]);
+  seedInsight(h, insFrontmatter({ status: "falsified" }));
+  const result = await applyVerification(
+    { insightId: ID, verdict: "confirm", clientEventId: EV },
+    h.deps
+  );
+  assert.equal(result.countsSynced, true);
+  assert.equal(readFm(h).status, "knowledge"); // the recorded promotion wins
+});
+
+test("INSIGHTS_TRACE_MODE=off skips write-③; unknown values still trace (v1 fallback)", async () => {
+  const h = harness();
+  seedInsight(h);
+  process.env.INSIGHTS_TRACE_MODE = "off";
+  try {
+    const result = await applyVerification({ insightId: ID, verdict: "confirm", clientEventId: EV }, h.deps);
+    assert.deepEqual(result, { ok: true, traceWritten: true, countsSynced: true });
+    assert.equal(h.calls.diaryTraces.length, 0);
+  } finally {
+    delete process.env.INSIGHTS_TRACE_MODE;
+  }
+
+  const h2 = harness();
+  seedInsight(h2);
+  process.env.INSIGHTS_TRACE_MODE = "daily-batch"; // v2 value — v1 falls back to per-event
+  try {
+    const result = await applyVerification({ insightId: ID, verdict: "confirm", clientEventId: EV }, h2.deps);
+    assert.equal(result.traceWritten, true);
+    assert.equal(h2.calls.diaryTraces.length, 1);
+  } finally {
+    delete process.env.INSIGHTS_TRACE_MODE;
+  }
+});
+
+test("read-phase failure → rejects with zero writes (outbox converges later)", async () => {
+  const h = harness();
+  seedInsight(h);
+  h.deps.readStream = async () => {
+    throw new Error("github unreachable (injected)");
+  };
+  await assert.rejects(
+    applyVerification({ insightId: ID, verdict: "confirm", clientEventId: EV }, h.deps),
+    /github unreachable/
+  );
+  assert.deepEqual(h.calls.writes, []);
+});
+
+test("induct write failure → INSIGHT_WRITE_FAILED (not VERIFY_CONFLICT)", async () => {
+  const h = harness();
+  h.deps.writeInsightFile = async () => {
+    throw new GitHubConflictError("GitHub API error 409");
+  };
+  await assert.rejects(
+    createInsightFromText({ statement: "单行命题" }, h.deps),
+    (err) => err instanceof InsightsServiceError && err.code === "INSIGHT_WRITE_FAILED"
   );
 });

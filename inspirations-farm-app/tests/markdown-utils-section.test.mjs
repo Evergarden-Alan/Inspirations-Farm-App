@@ -5,6 +5,7 @@ import test from "node:test";
 import {
   insertImageAfterDailyNote,
   insertIntoDailyNotesSection,
+  insertIntoDailySection,
   parseDailyNotes,
 } from "../src/lib/markdown-utils.ts";
 
@@ -149,4 +150,24 @@ test("fixture: insert appends at the end of 今日杂记, other sections untouch
   assert.equal(taskCount(result), taskCount(fixture));
   // new note is the last line of the file (杂记 is EOF-terminated)
   assert.ok(result.trimEnd().endsWith("- **22:00** 新增占位"));
+});
+
+test("insertIntoDailySection: a following H2 sibling doesn't capture new tasks (4th call site)", () => {
+  // insertIntoDailySection (# 当日日程) is the 4th d===1 call site — the review
+  // mutation showed reverting only THIS site passed every other test.
+  const diary = `# 当日日程
+
+- [ ] 既有任务占位
+
+## 今日杂记
+
+- **10:00** 买牛奶
+`;
+  const result = insertIntoDailySection(diary, "- [ ] 新任务占位");
+  const lines = result.split("\n");
+  const taskIdx = lines.findIndex((l) => l.includes("新任务占位"));
+  const jottingsIdx = lines.findIndex((l) => l === "## 今日杂记");
+  assert.ok(taskIdx > -1 && taskIdx < jottingsIdx, "new task must land inside 当日日程, before 杂记");
+  // the jottings parse is unchanged
+  assert.deepEqual(parseDailyNotes(result).map((n) => n.time), ["10:00"]);
 });

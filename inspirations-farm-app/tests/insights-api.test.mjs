@@ -108,9 +108,7 @@ test("crown route: 401 without PIN, 400 without fields", async () => {
 
 test("insights route: POST invalid statement → 400; valid → 200 with id", async () => {
   const { POST } = createInsightsRoute({
-    writeInsightFile: async (fm) => {
-      return { sha: "new" };
-    },
+    writeInsightFile: async () => ({ sha: "new" }),
     now: () => new Date("2026-09-30T13:35:01Z"),
   });
   const bad = await POST(fakeRequest({ statement: "a\nb" }));
