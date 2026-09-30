@@ -439,11 +439,13 @@ export function parseDailyNotes(content: string): DailyNote[] {
   const sectionStart = findHeadingLine(root, "今日杂记"); // 1-based, -1 if absent
   if (sectionStart === -1) return [];
 
-  // Section ends at the next H1 heading or `---`.
+  // Section ends at the next heading of any depth or `---` — an H2 sibling
+  // (e.g. ## 行为记录 next to ## 今日杂记) must terminate the section, or its
+  // content gets swallowed into the parse.
   const endLine = findSectionEndLine(
     root,
     sectionStart,
-    { headingEnds: (d) => d === 1, thematicBreakEnds: true },
+    { headingEnds: () => true, thematicBreakEnds: true },
     lines.length + 1
   );
   const sectionEnd0 = endLine - 1; // 0-based; === lines.length when EOF
@@ -541,7 +543,7 @@ export function insertImageAfterDailyNote(
   const endLine = findSectionEndLine(
     root,
     sectionStart,
-    { headingEnds: (d) => d === 1, thematicBreakEnds: true },
+    { headingEnds: () => true, thematicBreakEnds: true },
     lines.length + 1
   );
 
@@ -758,11 +760,11 @@ export function insertIntoDailySection(
     return content.trimEnd() + "\n" + taskLine + "\n";
   }
 
-  // Section ends at the next H1 heading or thematic break (`---`).
+  // Section ends at the next heading of any depth or thematic break (`---`).
   const endLine = findSectionEndLine(
     root,
     startLine,
-    { headingEnds: (d) => d === 1, thematicBreakEnds: true },
+    { headingEnds: () => true, thematicBreakEnds: true },
     lines.length + 1
   );
   const sectionStart = startLine - 1; // 0-based
@@ -811,11 +813,12 @@ export function insertIntoDailyNotesSection(
     return lines.join("\n");
   }
 
-  // 2) 今日杂记 found — section ends at the next H1 heading or `---`.
+  // 2) 今日杂记 found — section ends at the next heading of any depth or
+  // `---`, so a following sibling section never swallows new notes.
   const endLine = findSectionEndLine(
     root,
     notesStartLine,
-    { headingEnds: (d) => d === 1, thematicBreakEnds: true },
+    { headingEnds: () => true, thematicBreakEnds: true },
     lines.length + 1
   );
   const notesStart = notesStartLine - 1; // 0-based
