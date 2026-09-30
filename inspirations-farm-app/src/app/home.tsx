@@ -5,6 +5,7 @@ import Link from "next/link";
 import { CalendarDays, Settings, Sprout } from "lucide-react";
 import { LockScreen } from "./lock-screen";
 import { CaptureFab } from "./capture-fab";
+import { InductDrawer } from "./induct-drawer";
 import { ToastContainer } from "./toast";
 import { ThemeToggle } from "./theme-toggle";
 import { hasPin } from "@/lib/api";
@@ -112,6 +113,9 @@ export function Home({ children }: { children: React.ReactNode }) {
 
       {/* FAB — mobile quick-capture (hidden on desktop) */}
       {unlocked && <CaptureFab />}
+
+      {/* 转洞察 drawer — opened from jottings notes & inspiration cards */}
+      {unlocked && <InductDrawer />}
 
       {/* Global toast notifications */}
       <ToastContainer />

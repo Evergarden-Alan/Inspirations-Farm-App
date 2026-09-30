@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Check, Trash2, Send, MessageSquarePlus, Loader2, ChevronDown, ChevronUp, Undo2, MoreHorizontal, Search, Sprout, X } from "lucide-react";
+import { Check, Lightbulb, Trash2, Send, MessageSquarePlus, Loader2, ChevronDown, ChevronUp, Undo2, MoreHorizontal, Search, Sprout, X } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
@@ -921,6 +921,22 @@ function InspirationCard({
                       role="menu"
                       className="absolute bottom-full right-0 z-20 mb-1 min-w-[110px] rounded-xl border border-[var(--farm-line)] bg-[var(--farm-paper)] py-1 shadow-lg"
                     >
+                      <button
+                        role="menuitem"
+                        onClick={() => {
+                          setMenuOpen(false);
+                          window.dispatchEvent(
+                            new CustomEvent("insight:induct", {
+                              detail: { statement: item.content ?? "", origin: null },
+                            })
+                          );
+                        }}
+                        disabled={disabled}
+                        className="flex w-full touch-manipulation items-center gap-2 px-3 py-2 text-sm text-[var(--farm-ink)] transition-colors hover:bg-[var(--farm-green-soft)] hover:text-[var(--farm-green)]"
+                      >
+                        <Lightbulb className="w-4 h-4" />
+                        转洞察
+                      </button>
                       <button
                         role="menuitem"
                         onClick={() => {

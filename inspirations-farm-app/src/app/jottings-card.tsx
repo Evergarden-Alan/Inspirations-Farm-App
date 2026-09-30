@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, useCallback } from "react";
-import { Clock, Check, ImagePlus, Loader2, NotebookPen } from "lucide-react";
+import { Clock, Check, Footprints, ImagePlus, Lightbulb, Loader2, NotebookPen } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
@@ -10,6 +10,7 @@ import { getBeijingDateString } from "@/lib/beijing-time";
 import { parseDailyNotes, type DailyNote } from "@/lib/markdown-utils";
 import { compressImage } from "@/lib/image-compress";
 import { MarkdownRenderer } from "@/components/markdown-renderer";
+import { toast } from "@/app/toast";
 
 interface JottingsCardProps {
   initialNotes?: {
@@ -45,6 +46,7 @@ export function JottingsCard({ initialNotes }: JottingsCardProps = {}) {
   const [acting, setActing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [uploadingKey, setUploadingKey] = useState<string | null>(null);
+  const [mode, setMode] = useState<"jottings" | "behavior">("jottings");
   const date = getBeijingDateString();
 
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -97,12 +99,18 @@ export function JottingsCard({ initialNotes }: JottingsCardProps = {}) {
     try {
       const res = await apiFetch("/api/daily", {
         method: "POST",
-        body: JSON.stringify({ action: "addNote", date, content: text }),
+        body: JSON.stringify({
+          action: "addNote",
+          date,
+          content: text,
+          ...(mode === "behavior" ? { section: "behavior" } : {}),
+        }),
       });
       const data = await res.json();
       if (data.ok) {
         setNoteText("");
         setNotes(parseDailyNotes(data.content));
+        if (mode === "behavior") toast.success("行为已记录 📌");
         window.dispatchEvent(
           new CustomEvent<DailyUpdatedDetail>("daily:updated", {
             detail: {
@@ -189,6 +197,16 @@ export function JottingsCard({ initialNotes }: JottingsCardProps = {}) {
     [date]
   );
 
+  function handleInduct(index: number) {
+    const note = notes[index];
+    const text = note.text.split("\n")[0];
+    window.dispatchEvent(
+      new CustomEvent("insight:induct", {
+        detail: { statement: text, origin: { date, time: note.time } },
+      })
+    );
+  }
+
   function handlePickFile(index: number) {
     if (uploadingKey) return;
     pendingAnchorRef.current = noteAnchor(notes, index);
@@ -258,6 +276,15 @@ export function JottingsCard({ initialNotes }: JottingsCardProps = {}) {
                     </div>
                     <button
                       type="button"
+                      title="转洞察"
+                      aria-label="把这条杂记转为洞察假设"
+                      onClick={() => handleInduct(i)}
+                      className="h-7 w-7 shrink-0 touch-manipulation rounded-md text-[var(--farm-muted)] opacity-60 transition-opacity hover:bg-[var(--farm-green-soft)] hover:text-[var(--farm-green)] hover:opacity-100"
+                    >
+                      <Lightbulb className="mx-auto h-3.5 w-3.5" />
+                    </button>
+                    <button
+                      type="button"
                       title={uploading ? "正在上传..." : "附加图片"}
                       aria-label={uploading ? "正在上传图片" : "给这条杂记附加图片"}
                       onClick={() => handlePickFile(i)}
@@ -287,11 +314,36 @@ export function JottingsCard({ initialNotes }: JottingsCardProps = {}) {
           onChange={handleFileChange}
         />
 
-        {/* Add note input */}
-        <div className="flex items-center gap-2 border-t border-[var(--farm-line)]/70 pt-3">
+        {/* Add note input — 杂记/记录 mode toggle (plan 02 §2 记录) */}
+        <div className="border-t border-[var(--farm-line)]/70 pt-3">
+          <div className="mb-2 inline-flex rounded-lg border border-[var(--farm-line)] p-0.5">
+            <button
+              onClick={() => setMode("jottings")}
+              className={`flex min-h-[30px] items-center gap-1 rounded-md px-2.5 text-xs transition-colors ${
+                mode === "jottings"
+                  ? "bg-[var(--farm-green)] text-[var(--primary-foreground)]"
+                  : "text-[var(--farm-muted)] hover:text-[var(--farm-ink)]"
+              }`}
+            >
+              <NotebookPen className="h-3.5 w-3.5" />
+              杂记
+            </button>
+            <button
+              onClick={() => setMode("behavior")}
+              className={`flex min-h-[30px] items-center gap-1 rounded-md px-2.5 text-xs transition-colors ${
+                mode === "behavior"
+                  ? "bg-[var(--farm-green)] text-[var(--primary-foreground)]"
+                  : "text-[var(--farm-muted)] hover:text-[var(--farm-ink)]"
+              }`}
+            >
+              <Footprints className="h-3.5 w-3.5" />
+              记录
+            </button>
+          </div>
+          <div className="flex items-center gap-2">
           <Clock className="h-4 w-4 flex-shrink-0 text-[var(--farm-muted)]" />
           <Input
-            placeholder="记一笔杂记..."
+            placeholder={mode === "behavior" ? "记一笔行为（📌 自动添加）..." : "记一笔杂记..."}
             value={noteText}
             onChange={(e) => setNoteText(e.target.value)}
             onKeyDown={(e) => {
@@ -312,6 +364,7 @@ export function JottingsCard({ initialNotes }: JottingsCardProps = {}) {
           >
             <Check className="w-4 h-4" />
           </Button>
+          </div>
         </div>
       </CardContent>
     </Card>
