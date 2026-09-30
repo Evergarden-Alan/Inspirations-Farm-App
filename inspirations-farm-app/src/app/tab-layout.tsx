@@ -1,14 +1,15 @@
 "use client";
 
 import { useState } from "react";
-import { CalendarDays, Lightbulb, NotebookPen } from "lucide-react";
+import { CalendarDays, FlaskConical, Lightbulb, NotebookPen } from "lucide-react";
 
-type Tab = "today" | "inspirations" | "jottings";
+type Tab = "today" | "inspirations" | "jottings" | "bench";
 
 interface Props {
   todayPanel: React.ReactNode;
   inspirationsPanel: React.ReactNode;
   jottingsPanel: React.ReactNode;
+  benchPanel: React.ReactNode;
 }
 
 const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
@@ -27,10 +28,15 @@ const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
     label: "杂记",
     icon: <NotebookPen className="w-5 h-5" />,
   },
+  {
+    id: "bench",
+    label: "验证台",
+    icon: <FlaskConical className="w-5 h-5" />,
+  },
 ];
 
 /** Mobile uses tabs; desktop reveals the same mounted panels in a grid. */
-export function TabLayout({ todayPanel, inspirationsPanel, jottingsPanel }: Props) {
+export function TabLayout({ todayPanel, inspirationsPanel, jottingsPanel, benchPanel }: Props) {
   const [activeTab, setActiveTab] = useState<Tab>("today");
 
   return (
@@ -45,8 +51,13 @@ export function TabLayout({ todayPanel, inspirationsPanel, jottingsPanel }: Prop
             {jottingsPanel}
           </div>
         </div>
-        <div className={`${activeTab === "inspirations" ? "block" : "hidden"} min-w-0 lg:block`}>
-          {inspirationsPanel}
+        <div className="flex min-w-0 flex-col lg:gap-8">
+          <div className={`${activeTab === "inspirations" ? "block" : "hidden"} lg:block`}>
+            {inspirationsPanel}
+          </div>
+          <div className={`${activeTab === "bench" ? "block" : "hidden"} lg:block`}>
+            {benchPanel}
+          </div>
         </div>
       </div>
 

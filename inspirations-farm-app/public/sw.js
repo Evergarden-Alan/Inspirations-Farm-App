@@ -1,4 +1,4 @@
-const CACHE_NAME = "inspirations-farm-v2";
+const CACHE_NAME = "inspirations-farm-v3";
 
 // Assets to pre-cache on install
 const PRECACHE = ["/", "/manifest.webmanifest"];

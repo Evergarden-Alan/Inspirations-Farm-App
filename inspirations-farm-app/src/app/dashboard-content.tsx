@@ -1,8 +1,11 @@
-import { getTodos, getInspirations, syncCompletedIdeas } from "@/lib/data";
+import { getInsightBench, getTodos, getInspirations, syncCompletedIdeas } from "@/lib/data";
 import { DailyDashboard } from "./daily-dashboard";
 import { InspirationFeed } from "./inspiration-feed";
 import { JottingsCard } from "./jottings-card";
+import { VerifyBench } from "./verify-bench";
 import { TabLayout } from "./tab-layout";
+import { ErrorBoundary } from "./error-boundary";
+import type { BenchBoard } from "@/lib/insights-board";
 import type { DailyTask } from "@/lib/github";
 
 /**
@@ -11,10 +14,16 @@ import type { DailyTask } from "@/lib/github";
  * resolved state to client components.
  */
 export default async function DashboardContent() {
-  // ── 1. Concurrent fetch ──────────────────────────
-  const [todos, ideas] = await Promise.all([
+  // ── 1. Concurrent fetch (bench is the third route — plan 03 · T3.0) ──
+  // A bench failure must NOT white-screen the whole dashboard: null falls
+  // through to the client-side degraded snapshot (verify-bench).
+  const [todos, ideas, bench] = await Promise.all([
     getTodos(),
     getInspirations(),
+    getInsightBench().catch((err) => {
+      console.error("[DashboardContent] bench fetch failed:", err);
+      return null as BenchBoard | null;
+    }),
   ]);
 
   // ── 2. Reconciliation: find Obsidian-completed tasks ─
@@ -68,6 +77,11 @@ export default async function DashboardContent() {
       todayPanel={<DailyDashboard initialDaily={dailyData} />}
       inspirationsPanel={<InspirationFeed initialItems={reconciledIdeas} />}
       jottingsPanel={<JottingsCard initialNotes={notesData} />}
+      benchPanel={
+        <ErrorBoundary>
+          <VerifyBench initialBoard={bench} />
+        </ErrorBoundary>
+      }
     />
   );
 }
