@@ -11,9 +11,27 @@ import {
 } from "@/lib/github";
 import { validatePin } from "@/lib/auth";
 import { getBeijingTimestamp } from "@/lib/beijing-time";
+import { GitHubApiError } from "@/lib/github-client";
 
 function deny() {
   return Response.json({ ok: false, error: "Unauthorized" }, { status: 401 });
+}
+
+/** Map a thrown error to this route's HTTP response by error type, not by
+ *  string-matching the message. GitHub 4xx statuses pass through (e.g. 404
+ *  so clients can distinguish not-found from server errors), except 409 —
+ *  callers of this legacy route don't replay conflicts, so a conflict is
+ *  surfaced as a plain 500. */
+function githubErrorResponse(err: unknown) {
+  const message = err instanceof Error ? err.message : "Unknown error";
+  const status =
+    err instanceof GitHubApiError &&
+    err.status >= 400 &&
+    err.status < 500 &&
+    err.status !== 409
+      ? err.status
+      : 500;
+  return Response.json({ ok: false, error: message }, { status });
 }
 
 /**
@@ -26,10 +44,7 @@ export async function GET(req: NextRequest) {
     const items = await listInspirationsWithContent();
     return Response.json({ ok: true, items });
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : "Unknown error";
-    // Return 404 for not-found errors so clients can distinguish from server errors
-    const status = message.includes("404") ? 404 : 500;
-    return Response.json({ ok: false, error: message }, { status });
+    return githubErrorResponse(err);
   }
 }
 
@@ -100,10 +115,7 @@ export async function POST(req: NextRequest) {
     revalidatePath("/");
     return Response.json({ ok: true, ...result });
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : "Unknown error";
-    // Return 404 for not-found errors so clients can distinguish from server errors
-    const status = message.includes("404") ? 404 : 500;
-    return Response.json({ ok: false, error: message }, { status });
+    return githubErrorResponse(err);
   }
 }
 
@@ -128,10 +140,7 @@ export async function DELETE(req: NextRequest) {
     revalidatePath("/");
     return Response.json({ ok: true });
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : "Unknown error";
-    // Return 404 for not-found errors so clients can distinguish from server errors
-    const status = message.includes("404") ? 404 : 500;
-    return Response.json({ ok: false, error: message }, { status });
+    return githubErrorResponse(err);
   }
 }
 
@@ -168,10 +177,7 @@ export async function PUT(req: NextRequest) {
     revalidatePath("/");
     return Response.json({ ok: true, ...result });
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : "Unknown error";
-    // Return 404 for not-found errors so clients can distinguish from server errors
-    const status = message.includes("404") ? 404 : 500;
-    return Response.json({ ok: false, error: message }, { status });
+    return githubErrorResponse(err);
   }
 }
 
@@ -204,9 +210,6 @@ export async function PATCH(req: NextRequest) {
     revalidatePath("/");
     return Response.json({ ok: true, sha: result.sha, patch: result.patch });
   } catch (err: unknown) {
-    const message = err instanceof Error ? err.message : "Unknown error";
-    // Return 404 for not-found errors so clients can distinguish from server errors
-    const status = message.includes("404") ? 404 : 500;
-    return Response.json({ ok: false, error: message }, { status });
+    return githubErrorResponse(err);
   }
 }
