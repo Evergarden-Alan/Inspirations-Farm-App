@@ -748,9 +748,10 @@ export async function modifyDailyJournal(
   let attempt = 0;
 
   return withConflictRetry(async () => {
-    // Exponential backoff: wait longer on each retry to handle GitHub's eventual
-    // consistency. The Contents API can return stale content immediately after a
-    // write. Backoff: 0ms (first attempt), 500ms, 1000ms (on retries).
+    // Backoff: wait between retries to handle GitHub's eventual consistency.
+    // The Contents API can return stale content immediately after a write.
+    // withConflictRetry allows at most 2 attempts, so in practice: 0ms (first
+    // attempt), 500ms (on the single retry).
     if (attempt > 0) {
       const delay = Math.min(500 * attempt, 2000);
       await new Promise((r) => setTimeout(r, delay));

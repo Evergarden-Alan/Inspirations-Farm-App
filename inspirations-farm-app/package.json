@@ -7,6 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "typecheck": "tsc --noEmit",
     "test": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON --experimental-strip-types --import ./tests/register-hooks.mjs --test tests/*.test.mjs",
     "verify:focus-relay": "node scripts/verify-focus-relay.mjs",
     "verify:focus-relay-browser": "node scripts/verify-focus-relay-browser.mjs"
