@@ -164,7 +164,9 @@ function emptyCounts(): ReplayCounts[string] {
 }
 
 /** Rebuild per-insight counters from the event stream. Rules (pinned):
- *  - confirm → vc+1; refute → fc+1; both update lastVerified to the event ts.
+ *  - confirm → vc+1; refute → fc+1; both move lastVerified to the event ts
+ *    (MAX ts, not file order — retro-added catch-up events written by hand
+ *    during an outage must not drag the decay baseline backwards).
  *  - unobserved → recorded in the stream only, touches no counter/status.
  *  - refute demotes knowledge/verified → hypothesis; hypothesis stays;
  *    falsified is sticky (only manual marking sets it, nothing lifts it in v1).
@@ -178,7 +180,12 @@ export function replayEvents(events: InsightEvent[]): ReplayCounts {
     if (ev.type === "verify") {
       if (ev.verdict === "confirm") c.vc++;
       if (ev.verdict === "refute") c.fc++;
-      if (ev.verdict !== "unobserved") c.lastVerified = ev.ts;
+      if (
+        ev.verdict !== "unobserved" &&
+        (!c.lastVerified || ev.ts > c.lastVerified) // ISO +08:00: lex == chrono
+      ) {
+        c.lastVerified = ev.ts;
+      }
       if (ev.verdict === "refute" && (c.status === "knowledge" || c.status === "verified")) {
         c.status = "hypothesis";
       }

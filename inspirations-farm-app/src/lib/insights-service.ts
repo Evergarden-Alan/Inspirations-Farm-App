@@ -27,11 +27,9 @@ import { canCrown, replayEvents } from "./insights-config";
 import {
   type InsightsGithubDeps,
   type InsightFile,
-  type RecentJournal,
   appendVerification,
   createInsightFile,
   readInsightFile,
-  readRecentJournals,
   readVerifications,
   readVerificationsUntilVisible,
   updateInsightFrontmatter,
@@ -47,6 +45,7 @@ import { modifyDailyJournal } from "./github";
 
 export type InsightsServiceErrorCode =
   | "VERIFY_CONFLICT"
+  | "INSIGHT_WRITE_FAILED"
   | "INSIGHT_NOT_FOUND"
   | "NOT_CROWNABLE"
   | "INVALID_STATEMENT";
@@ -73,7 +72,6 @@ export interface InsightsServiceDependencies {
   readUntilVisible?: typeof readVerificationsUntilVisible;
   updateFrontmatter?: typeof updateInsightFrontmatter;
   readInsight?: typeof readInsightFile;
-  recentJournals?: typeof readRecentJournals;
   writeInsightFile?: typeof createInsightFile;
   /** Write-③: append the trace line to the journal. Default: the real
    *  modifyDailyJournal (conflict retry + template create + backoff built in). */
@@ -126,8 +124,10 @@ export interface VerifyInput {
   clientEventId: string;
   /** Timeout degradation hatch (route-level maxDuration guard): after write-①
    *  succeeds, skip ②③ and let invariant/reconcile converge. The failure
-   *  matrix already defines this outcome — it is not a new failure state. */
+   *  matrix already defines this outcome — it is not a new failure state.
+   *  `deadlineMs` is an epoch bound checked right after write-①. */
   degrade?: boolean;
+  deadlineMs?: number;
 }
 
 export interface VerifyResult {
@@ -144,11 +144,14 @@ export async function applyVerification(
   const d = resolveDeps(deps);
   const gh = d.gh ?? {};
 
-  // 0) Single-point read: stream + INS + the 3-day evidence window together,
-  //    shrinking the Contents-API replica drift surface.
-  const [insight, journals] = await Promise.all([
+  // 0) Single-point read: stream + INS together (one parallel round), shrinking
+  //    the Contents-API replica drift surface. The 3-day evidence window is
+  //    deliberately NOT read here — evidence display lives in the bench UI
+  //    (data.ts) and the evidence gate is a soft UI constraint; three journal
+  //    GETs per verify would only eat into the maxDuration headroom.
+  const [insight, before] = await Promise.all([
     (d.readInsight ?? readInsightFile)(input.insightId, gh),
-    (d.recentJournals ?? readRecentJournals)(3, gh),
+    (d.readStream ?? readVerifications)(gh),
   ]);
   if (!insight) {
     throw new InsightsServiceError("INSIGHT_NOT_FOUND", `Unknown insight: ${input.insightId}`, 404);
@@ -157,7 +160,6 @@ export async function applyVerification(
   // 1) Idempotency: a retried/timed-out submit replays the same clientEventId.
   //    (A raced duplicate line is reported by invariant as `duplicates` and
   //    never double-counts; the stream RMW still converges.)
-  const before = await (d.readStream ?? readVerifications)(gh);
   if (before.parsed.valid.some((e) => e.id === input.clientEventId)) {
     return { ok: true, already: true, traceWritten: false, countsSynced: false };
   }
@@ -172,9 +174,9 @@ export async function applyVerification(
     source: input.source ?? null,
     note: input.note ?? null,
   };
-  // Canonical commit message needs the post-event counts — replay the
-  // pre-event stream + this event (the authoritative recount happens in ②).
-  const projected = replayEvents([event]);
+  // Canonical commit message carries the CUMULATIVE post-event count —
+  // replay the pre-event stream + this event (authoritative recount in ②).
+  const projected = replayEvents([...before.parsed.valid, event]);
   const message =
     input.verdict === "unobserved"
       ? `verify(${input.insightId}): unobserved`
@@ -191,7 +193,7 @@ export async function applyVerification(
     );
   }
 
-  if (input.degrade) {
+  if (input.degrade || (input.deadlineMs !== undefined && Date.now() > input.deadlineMs)) {
     // Deliberate degradation near the function timeout — events are safe,
     // counters converge via invariant/reconcile.
     return { ok: true, traceWritten: false, countsSynced: false };
@@ -224,9 +226,13 @@ export async function applyVerification(
       },
       gh
     );
-  } catch {
+  } catch (err) {
     // Stale-replica exhaustion or a write failure — data is safe in the
     // stream; invariant detects the drift and reconcile rewrites the file.
+    console.error(
+      `[insights] counts sync failed for ${input.insightId}:`,
+      err instanceof Error ? err.message : err
+    );
     countsSynced = false;
   }
 
@@ -289,8 +295,16 @@ export async function crownInsight(
     return { ok: true, already_crowned: true, countsSynced: true };
   }
 
-  // Gate on replayed counts — file counters can lag a concurrent verify.
+  // Event-level idempotency (same promise as the verify chain): a retry after
+  // a partial failure (write-① landed, write-② timed out with frontmatter
+  // still hypothesis) must NOT append a second crown event — that would break
+  // the `crown = ≤2 commits` invariant and leave a duplicate line in the flow.
   const current = await (d.readStream ?? readVerifications)(gh);
+  if (current.parsed.valid.some((e) => e.id === input.clientEventId)) {
+    return { ok: true, already_crowned: true, countsSynced: false };
+  }
+
+  // Gate on replayed counts — file counters can lag a concurrent verify.
   const counts = replayEvents(current.parsed.valid)[input.insightId] ?? {
     vc: 0,
     fc: 0,
@@ -351,7 +365,11 @@ export async function crownInsight(
       },
       gh
     );
-  } catch {
+  } catch (err) {
+    console.error(
+      `[insights] crown counts sync failed for ${input.insightId}:`,
+      err instanceof Error ? err.message : err
+    );
     countsSynced = false;
   }
   return { ok: true, countsSynced };
@@ -411,8 +429,10 @@ export async function createInsightFromText(
       `Add insight ${id} ${statement.slice(0, 40)}`
     );
   } catch (err) {
+    // Dedicated code — induct has no "verify conflict"; a raced duplicate id
+    // (GitHubConflictError) must surface, not retry.
     throw new InsightsServiceError(
-      "VERIFY_CONFLICT",
+      "INSIGHT_WRITE_FAILED",
       `INS file write failed: ${err instanceof Error ? err.message : "unknown"}`,
       503
     );
@@ -422,4 +442,4 @@ export async function createInsightFromText(
 
 // ── Evidence window (shared with the bench read side) ───
 
-export type { RecentJournal, InsightFile };
+export type { InsightFile };
