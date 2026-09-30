@@ -233,16 +233,18 @@ export async function updateInsightFrontmatter(
 
 /** Create the INS file (no sha — create-if-missing semantics; a 409 here means
  *  a duplicate id raced us and must surface, not retry). Frontmatter goes
- *  through the date-safe MATTER_OPTS so string dates stay strings. */
+ *  through the date-safe MATTER_OPTS so string dates stay strings. `message`
+ *  carries the canonical `Add insight INS-… 命题前40字` commit shape. */
 export async function createInsightFile(
   frontmatter: InsightFrontmatter,
   body: string,
-  deps: InsightsGithubDeps = {}
+  deps: InsightsGithubDeps = {},
+  message = `Add insight ${frontmatter.id}`
 ): Promise<{ sha: string }> {
   const d = resolveDeps(deps);
   const path = `Insights/${frontmatter.id}.md`;
   const content = matter.stringify(body, frontmatter, MATTER_OPTS);
-  return d.writeFile(path, `Add insight ${frontmatter.id}`, content, null);
+  return d.writeFile(path, message, content, null);
 }
 
 // ── Recent journals (evidence window) ───────────────────
