@@ -593,7 +593,7 @@ function nodeText(node: { value?: string; children?: unknown[] }): string {
 /** 1-based start line of the first top-level heading whose text equals `title`
  *  (any depth). Returns -1 if not found. Code blocks and frontmatter are
  *  separate node types, so heading-like text inside them never matches. */
-function findHeadingLine(root: MdastRoot, title: string): number {
+export function findHeadingLine(root: MdastRoot, title: string): number {
   for (const child of root.children) {
     if (child.type === "heading" && nodeText(child).trim() === title) {
       return child.position?.start.line ?? -1;
@@ -602,7 +602,7 @@ function findHeadingLine(root: MdastRoot, title: string): number {
   return -1;
 }
 
-interface SectionEndOptions {
+export interface SectionEndOptions {
   /** Whether a heading at the given depth ends the section. */
   headingEnds: (depth: number) => boolean;
   /** Whether a thematic break (`---`) ends the section. */
@@ -611,7 +611,7 @@ interface SectionEndOptions {
 
 /** 1-based start line of the first top-level node after `afterLine` that ends
  *  the section (per `opts`). Returns `eofLine` if none. */
-function findSectionEndLine(
+export function findSectionEndLine(
   root: MdastRoot,
   afterLine: number,
   opts: SectionEndOptions,
