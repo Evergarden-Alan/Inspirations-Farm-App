@@ -3,7 +3,7 @@
  * All API routes call validatePin(request) before executing.
  */
 
-import { NextRequest } from "next/server";
+import type { NextRequest } from "next/server";
 import { timingSafeEqual } from "node:crypto";
 
 /** Constant-time string comparison to avoid PIN timing side-channels. */
