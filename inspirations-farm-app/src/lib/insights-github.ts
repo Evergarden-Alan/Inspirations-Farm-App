@@ -14,6 +14,7 @@
  */
 
 import matter from "gray-matter";
+import pLimit from "p-limit";
 import {
   GitHubApiError,
   decodeBase64,
@@ -23,6 +24,7 @@ import {
   withConflictRetry,
 } from "./github-client";
 import {
+  INSIGHTS_DIR,
   INSIGHTS_EVENT_STREAM_PATH,
   type InsightEvent,
   type InsightFrontmatter,
@@ -54,6 +56,8 @@ export interface InsightsGithubDeps {
     content: string,
     sha: string | null
   ) => Promise<{ sha: string }>;
+  /** List INS file paths in Insights/. Default: Contents API GET on the dir. */
+  listInsightPaths?: () => Promise<string[]>;
   /** Beijing "today" (`YYYY-MM-DD`) anchoring the recent-journal window.
    *  Default: getBeijingDateString(). */
   today?: () => string;
@@ -104,12 +108,46 @@ const defaultWriteFile = (
   ).then((r) => ({ sha: r.content.sha }));
 };
 
+const defaultListInsightPaths = async (): Promise<string[]> => {
+  const { owner, repo } = getConfig();
+  const items = await githubFetch<
+    { name: string; path: string; type: string }[]
+  >(`/repos/${owner}/${repo}/contents/${INSIGHTS_DIR}`);
+  return items
+    .filter((i) => i.type === "file" && i.name.endsWith(".md"))
+    .map((i) => i.path);
+};
+
 function resolveDeps(deps: InsightsGithubDeps = {}): Required<InsightsGithubDeps> {
   return {
     readFile: deps.readFile ?? defaultReadFile,
     writeFile: deps.writeFile ?? defaultWriteFile,
+    listInsightPaths: deps.listInsightPaths ?? defaultListInsightPaths,
     today: deps.today ?? getBeijingDateString,
   };
+}
+
+/** Read every INS file's frontmatter. The listing+per-file GET is 1+N —
+ *  bounded here at p-limit(10), never run unbounded (plan 04 §4 risk 2). */
+export async function readAllInsightFrontmatters(
+  deps: InsightsGithubDeps = {}
+): Promise<Record<string, Record<string, unknown>>> {
+  const d = resolveDeps(deps);
+  const paths = await d.listInsightPaths();
+  const limit = pLimit(10);
+  const out: Record<string, Record<string, unknown>> = {};
+  await Promise.all(
+    paths.map((path) =>
+      limit(async () => {
+        const file = await d.readFile(path);
+        if (file.sha === null) return;
+        const id = path.split("/").pop()?.replace(/\.md$/, "");
+        if (!id) return;
+        out[id] = parseFrontmatter(file.content);
+      })
+    )
+  );
+  return out;
 }
 
 /** Serialize one event onto the stream (single line + newline). */
