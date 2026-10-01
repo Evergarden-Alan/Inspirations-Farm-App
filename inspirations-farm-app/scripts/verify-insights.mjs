@@ -23,7 +23,7 @@
  */
 
 import { readFileSync, existsSync } from "node:fs";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { dirname, join } from "node:path";
 
 const appRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -92,10 +92,9 @@ async function checkCommitStructure(env) {
 
 // ── Main ────────────────────────────────────────────────
 
-const { register } = await import("node:module");
-const { pathToFileURL } = await import("node:url");
-register("./tests/register-hooks.mjs", pathToFileURL(join(appRoot, "tests", "register-hooks.mjs")));
-
+// Extensionless relative imports inside src/lib need the same resolution hook
+// the tests use — supplied via `--import ./tests/register-hooks.mjs` in the
+// npm script (the sync registerHooks API must run on the main thread).
 const { checkInvariant, reconcile } = await import(
   pathToFileURL(join(appRoot, "src/lib/insights-invariant.ts"))
 );
