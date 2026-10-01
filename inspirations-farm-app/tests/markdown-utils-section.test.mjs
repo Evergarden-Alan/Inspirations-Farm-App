@@ -171,3 +171,54 @@ test("insertIntoDailySection: a following H2 sibling doesn't capture new tasks (
   // the jottings parse is unchanged
   assert.deepEqual(parseDailyNotes(result).map((n) => n.time), ["10:00"]);
 });
+
+// ── Multi-line jottings (web Shift+Enter input) ─────────────────────────
+//
+// The web editor accepts multi-line notes. Serialization must land the extra
+// lines TAB-INDENTED below the bullet — the same continuation convention as
+// image embeds and Obsidian hand-written multi-line notes (scanDailyNotes
+// only joins INDENTED lines). Column-0 lines would be silently dropped from
+// the web display.
+
+test("insertIntoDailyNotesSection: multi-line note serializes as tab-indented continuations", () => {
+  const result = insertIntoDailyNotesSection(
+    H2_SIBLING_DIARY,
+    "21:15",
+    "解决题型:发现如下漏洞：\n- 积分基本运算熟练度\n- 弧积分\n- 反常积分"
+  );
+  assert.match(
+    result,
+    /- \*\*21:15\*\* 解决题型:发现如下漏洞：\n\t- 积分基本运算熟练度\n\t- 弧积分\n\t- 反常积分/
+  );
+  // Round-trip: one note, every line preserved via the \n join
+  const note = parseDailyNotes(result).find((n) => n.time === "21:15");
+  assert.equal(
+    note.text,
+    "解决题型:发现如下漏洞：\n- 积分基本运算熟练度\n- 弧积分\n- 反常积分"
+  );
+});
+
+test("insertIntoDailyNotesSection: interior blank lines collapse to keep the block contiguous", () => {
+  // scanDailyNotes closes a note block at a blank line, so a serialized blank
+  // continuation would orphan everything below it — collapse them instead.
+  const result = insertIntoDailyNotesSection(H2_SIBLING_DIARY, "21:20", "第一行\n\n第二行");
+  const note = parseDailyNotes(result).find((n) => n.time === "21:20");
+  assert.equal(note.text, "第一行\n第二行");
+});
+
+test("insertImageAfterDailyNote: embed lands after the LAST continuation of a multi-line note", () => {
+  const withNote = insertIntoDailyNotesSection(
+    H2_SIBLING_DIARY,
+    "21:15",
+    "首行\n- 第二行\n- 第三行"
+  );
+  const result = insertImageAfterDailyNote(
+    withNote,
+    { time: "21:15", text: "首行", occurrence: 0 },
+    "Pasted image 20261001210000.png"
+  );
+  assert.ok(result);
+  const lines = result.split("\n");
+  const embedIdx = lines.findIndex((l) => l.includes("![[Pasted image"));
+  assert.equal(lines[embedIdx - 1], "\t- 第三行");
+});

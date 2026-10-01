@@ -107,9 +107,18 @@ export function buildTraceLine(trace: TraceInput): string {
   return `- **${trace.time}** ${emoji} ${trace.insightId} ${trace.statement}${note}`;
 }
 
-/** Build a plain behavior line: `- **23:05** 📌 上床睡觉`. */
+/** Build a plain behavior line: `- **23:05** 📌 上床睡觉`.
+ *  Multi-line text continues tab-indented below the bullet (same convention
+ *  as jottings notes); blank lines collapse. */
 export function buildBehaviorLine(time: string, text: string): string {
-  return `- **${time}** 📌 ${text}`;
+  const [firstLine, ...continuations] = text
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+  return [
+    `- **${time}** 📌 ${firstLine}`,
+    ...continuations.map((line) => `\t${line}`),
+  ].join("\n");
 }
 
 // ── Section writing ─────────────────────────────────────

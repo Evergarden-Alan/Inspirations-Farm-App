@@ -64,6 +64,15 @@ test("buildTraceLine: `- **HH:mm** ✅ INS-… statement：note`", () => {
   assert.equal(buildBehaviorLine("23:05", "上床睡觉"), "- **23:05** 📌 上床睡觉");
 });
 
+test("buildBehaviorLine: multi-line text serializes continuation lines tab-indented", () => {
+  // Same continuation convention as jottings notes (markdown-utils): extra
+  // lines go below the bullet tab-indented, empty lines collapse.
+  assert.equal(
+    buildBehaviorLine("21:30", "跑步 3km\n\n配速 5'40\""),
+    "- **21:30** 📌 跑步 3km\n\t配速 5'40\""
+  );
+});
+
 // ── Parsing (full-file scan) ────────────────────────────
 
 test("parseBehaviorRecords: full-file scan reads markers in ANY section", () => {

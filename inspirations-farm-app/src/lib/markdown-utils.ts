@@ -790,7 +790,19 @@ export function insertIntoDailyNotesSection(
   noteText: string
 ): string {
   const lines = content.split("\n");
-  const noteLine = `- **${time}** ${noteText}`;
+  // Multi-line note (web Shift+Enter): the first line rides the bullet, the
+  // rest land as tab-indented continuation lines — the same convention as
+  // image embeds, and the only shape scanDailyNotes reads back as one note.
+  // Blank lines collapse: a blank continuation would close the note block and
+  // orphan everything below it.
+  const [firstLine, ...continuations] = noteText
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const noteLine = [
+    `- **${time}** ${firstLine}`,
+    ...continuations.map((line) => `\t${line}`),
+  ].join("\n");
   const root = parseMarkdownAst(content);
 
   // 1) Try to find ## 今日杂记 (any heading level)

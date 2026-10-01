@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import { Clock, Check, Footprints, ImagePlus, Lightbulb, Loader2, NotebookPen } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { apiFetch, AuthError } from "@/lib/api";
 import { getBeijingDateString } from "@/lib/beijing-time";
 import { parseDailyNotes, type DailyNote } from "@/lib/markdown-utils";
@@ -342,18 +342,23 @@ export function JottingsCard({ initialNotes }: JottingsCardProps = {}) {
           </div>
           <div className="flex items-center gap-2">
           <Clock className="h-4 w-4 flex-shrink-0 text-[var(--farm-muted)]" />
-          <Input
-            placeholder={mode === "behavior" ? "记一笔行为（📌 自动添加）..." : "记一笔杂记..."}
+          <Textarea
+            placeholder={mode === "behavior"
+              ? "记一笔行为（📌 自动添加）..."
+              : "记一笔杂记...（Shift+Enter 换行）"}
             value={noteText}
             onChange={(e) => setNoteText(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === "Enter") {
+              // Enter submits; Shift+Enter keeps the default newline. Skip
+              // while the IME is composing — Enter confirms 候选词, not submit.
+              if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
                 e.preventDefault();
                 handleAddNote();
               }
             }}
             disabled={acting}
-            className="farm-input h-9 text-sm"
+            rows={1}
+            className="farm-input min-h-9 max-h-44 resize-none overflow-y-auto py-2 text-sm leading-relaxed"
           />
           <Button
             size="icon"
