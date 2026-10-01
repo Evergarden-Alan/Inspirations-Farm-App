@@ -1,7 +1,7 @@
 # 真知浮现（Insights）v0+v1 开发计划
 
 > 创建时间：2026-10-01
-> 状态：**待启动**（M0 未开始）
+> 状态：**已实施，待真机验收**（M0-M4 代码已合入 main 并推送；T0.1/T0.2/T0.6 手动操作已完成；剩 T5.2 真机全链验收）
 > 来源：《InspirationsFarm扩展_真知浮现_最终架构报告.md》（`/mnt/data/Projects/ImproveSystem/`）+ 2026-10-01 代码证据核实（40 条主张，见 [05-evidence-check.md](./05-evidence-check.md)）
 
 ## 一句话
