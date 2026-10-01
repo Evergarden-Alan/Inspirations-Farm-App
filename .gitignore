@@ -39,3 +39,7 @@ yarn-error.log*
 
 
 resources/
+
+# Tool/session artifacts (not project files)
+.playwright-mcp/
+docs/superpowers/
