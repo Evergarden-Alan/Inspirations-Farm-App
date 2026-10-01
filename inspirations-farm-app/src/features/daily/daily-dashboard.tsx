@@ -39,9 +39,9 @@ import {
   INITIAL_FOCUS_AUDIO_SNAPSHOT,
   type FocusAudioControllerHandle,
   type FocusAudioSnapshot,
-} from "./focus-audio-controller";
-import { FocusTimer } from "./focus-timer";
-import { toast } from "./toast";
+} from "@/features/focus/focus-audio-controller";
+import { FocusTimer } from "@/features/focus/focus-timer";
+import { toast } from "@/components/app-shell/toast";
 
 interface DailyState {
   exists: boolean;

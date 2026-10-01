@@ -8,7 +8,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { apiFetch, AuthError } from "@/lib/api";
-import { toast } from "@/app/toast";
+import { toast } from "@/components/app-shell/toast";
 import { PriorityPicker, type Priority } from "@/components/priority-picker";
 
 /**

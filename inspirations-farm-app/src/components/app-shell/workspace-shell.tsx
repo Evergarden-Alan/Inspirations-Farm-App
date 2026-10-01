@@ -1,32 +1,25 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { CalendarDays, Settings, Sprout } from "lucide-react";
-import { LockScreen } from "./lock-screen";
-import { CaptureFab } from "./capture-fab";
-import { InductDrawer } from "./induct-drawer";
-import { ToastContainer } from "./toast";
-import { ThemeToggle } from "./theme-toggle";
+
+import { CaptureFab } from "@/components/app-shell/capture-fab";
+import { InductDrawer } from "@/components/app-shell/induct-drawer";
+import { LockScreen } from "@/components/app-shell/lock-screen";
+import { ThemeToggle } from "@/components/app-shell/theme-toggle";
+import { ToastContainer } from "@/components/app-shell/toast";
 import { hasPin } from "@/lib/api";
 import { getBeijingDateString } from "@/lib/beijing-time";
+import { AppNav } from "./app-nav";
 
 /**
- * Client component — handles PIN lock screen and renders the
- * sticky header shell.  The actual dashboard content is received
- * as `children` (pre-rendered by the server with Suspense).
- *
- * Children are ALWAYS rendered so that React Suspense can start
- * streaming the skeleton + data immediately.  When the user hasn't
- * unlocked yet, a full-screen LockScreen overlay is shown on top.
- *
- * Reconciliation runs server-side in DashboardContent;
- * this component only gates on the PIN.
+ * Shared workspace chrome. Pages render underneath the lock and stream
+ * independently; route transitions preserve this shell and its global tools.
  */
-export function Home({ children }: { children: React.ReactNode }) {
+export function WorkspaceShell({ children }: { children: React.ReactNode }) {
   const [unlocked, setUnlocked] = useState(false);
 
-  // ── Lock screen ──────────────────────────────────
   useEffect(() => {
     let unlockTimer: ReturnType<typeof setTimeout> | undefined;
     if (hasPin()) {
@@ -53,7 +46,6 @@ export function Home({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="farm-app min-h-screen font-sans antialiased">
-      {/* Header */}
       <header className="farm-header sticky top-0 z-20">
         <div className="mx-auto flex min-h-[68px] max-w-[1280px] items-center justify-between gap-3 px-4 py-3 sm:px-6 lg:px-8">
           <div className="flex min-w-0 items-center gap-3">
@@ -95,32 +87,17 @@ export function Home({ children }: { children: React.ReactNode }) {
         </div>
       </header>
 
-      <section className="farm-intro mx-auto w-full max-w-[1280px] px-4 pb-3 pt-8 sm:px-6 sm:pt-11 lg:px-8 lg:pb-5">
-        <div className="max-w-2xl">
-          <p className="farm-kicker mb-2">FIELD NOTES · TODAY</p>
-          <h2 className="farm-display text-[clamp(1.8rem,4vw,3.6rem)] font-medium leading-[1.08] tracking-[-0.035em] text-[var(--farm-ink)]">
-            把今天，慢慢种成
-            <span className="block text-[var(--farm-green)]">想要的样子。</span>
-          </h2>
-          <p className="mt-4 max-w-xl text-sm leading-6 text-[var(--farm-muted)] sm:text-[15px]">
-            收拢散落的念头，照看正在发生的事。每一次记录，都是下一次生长的起点。
-          </p>
-        </div>
-      </section>
+      <AppNav variant="desktop" />
 
-      {/* Dashboard is always rendered so Suspense can stream */}
-      {children}
+      <main className="mx-auto w-full max-w-3xl px-4 pb-[calc(9rem+env(safe-area-inset-bottom))] pt-5 sm:px-6 lg:max-w-[960px] lg:pb-20 lg:pt-7 lg:px-8">
+        {children}
+      </main>
 
-      {/* FAB — mobile quick-capture (hidden on desktop) */}
       {unlocked && <CaptureFab />}
-
-      {/* 转洞察 drawer — opened from jottings notes & inspiration cards */}
       {unlocked && <InductDrawer />}
-
-      {/* Global toast notifications */}
       <ToastContainer />
+      <AppNav variant="mobile" />
 
-      {/* Lock overlay — covers everything until PIN is verified */}
       {!unlocked && (
         <div className="fixed inset-0 z-50">
           <LockScreen onUnlock={() => setUnlocked(true)} />

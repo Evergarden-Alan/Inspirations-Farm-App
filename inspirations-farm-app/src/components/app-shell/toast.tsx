@@ -4,7 +4,7 @@
  * Lightweight event-bus toast system.
  *
  * Usage anywhere in client code:
- *   import { toast } from "@/app/toast";
+ *   import { toast } from "@/components/app-shell/toast";
  *   toast.success("已种下灵感 🌱");
  *   toast.error("网络错误，请重试");
  *

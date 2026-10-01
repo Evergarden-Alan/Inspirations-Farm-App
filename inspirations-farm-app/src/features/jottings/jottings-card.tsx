@@ -10,7 +10,7 @@ import { getBeijingDateString } from "@/lib/beijing-time";
 import { parseDailyNotes, type DailyNote } from "@/lib/markdown-utils";
 import { compressImage } from "@/lib/image-compress";
 import { MarkdownRenderer } from "@/components/markdown-renderer";
-import { toast } from "@/app/toast";
+import { toast } from "@/components/app-shell/toast";
 
 interface JottingsCardProps {
   initialNotes?: {

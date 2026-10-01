@@ -13,7 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { apiFetch, AuthError } from "@/lib/api";
 import { getBeijingDateString, getBeijingDateTimeString } from "@/lib/beijing-time";
-import { toast } from "@/app/toast";
+import { toast } from "@/components/app-shell/toast";
 import { createEventId } from "@/lib/insights";
 import {
   outboxAdd,

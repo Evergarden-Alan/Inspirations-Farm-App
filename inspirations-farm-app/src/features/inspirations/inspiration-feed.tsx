@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Card, CardContent } from "@/components/ui/card";
 import { getSurvivalLabel, getSurvivalColor } from "@/lib/time";
 import { apiFetch, AuthError } from "@/lib/api";
-import { toast } from "@/app/toast";
+import { toast } from "@/components/app-shell/toast";
 import { getBeijingDateString } from "@/lib/beijing-time";
 import { MarkdownRenderer } from "@/components/markdown-renderer";
 import { VirtualizedList } from "@/components/virtualized-list";

@@ -7,7 +7,7 @@ import { motion, AnimatePresence } from "framer-motion";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { apiFetch, AuthError } from "@/lib/api";
-import { toast } from "@/app/toast";
+import { toast } from "@/components/app-shell/toast";
 import { LEARNING_TOPICS } from "@/lib/insights-config";
 
 /** Fired by jottings notes and inspiration cards — detail carries the prefill. */

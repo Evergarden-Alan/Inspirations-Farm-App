@@ -16,9 +16,9 @@ import {
   X,
 } from "lucide-react";
 
-import { LockScreen } from "@/app/lock-screen";
-import { ThemeToggle } from "@/app/theme-toggle";
-import { ToastContainer, toast } from "@/app/toast";
+import { LockScreen } from "@/components/app-shell/lock-screen";
+import { ThemeToggle } from "@/components/app-shell/theme-toggle";
+import { ToastContainer, toast } from "@/components/app-shell/toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { apiFetch, AuthError, hasPin } from "@/lib/api";

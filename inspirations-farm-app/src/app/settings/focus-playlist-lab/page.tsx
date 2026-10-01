@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { ArrowLeft, FlaskConical, Sprout } from "lucide-react";
 
-import { ThemeToggle } from "@/app/theme-toggle";
+import { ThemeToggle } from "@/components/app-shell/theme-toggle";
 import { FocusPlaylistLab } from "./focus-playlist-lab";
 
 export const dynamic = "force-dynamic";
