@@ -6,6 +6,9 @@ import { createChatGithubIo } from "@/lib/chat/github-chat";
 import { buildSystemFromCache } from "@/lib/chat/prompt";
 import { getChatRepos } from "@/lib/chat/repos";
 
+// 45s 共享装载预算远超平台默认 10s——不声明就会被中途杀掉（同 insights 路由先例）。
+export const maxDuration = 60;
+
 /** 引导端点：暖语料缓存（45s 共享预算）+ 装配热集，返回覆盖率与降级状态。
  *  单仓库失败不整体失败——degraded:true 让前端亮「数据截至」横幅。 */
 export function createChatSessionRoute(

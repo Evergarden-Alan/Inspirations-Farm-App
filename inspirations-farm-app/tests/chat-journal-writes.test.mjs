@@ -118,3 +118,20 @@ test("appendInspirationCard retries on 422 (name exists)", async () => {
   const res = await appendInspirationCard(note, { title: "t", body: "b" }, io, "TS");
   assert.equal(res.path, "Inspirations/AI-TS-2.md");
 });
+
+test("journal and inspiration writes go through to corpus cache", async () => {
+  const paths = { "Journal/Daily/2026-10-05.md": DAILY };
+  const io = io404On(paths);
+  const { ensureCorpus, getCorpus } = await import("../src/lib/chat/corpus-cache.ts");
+  await ensureCorpus(note, io, { force: true, now: () => Date.now() });
+
+  await appendJournalEntry(note, "2026-10-05", "缓存同步", io, "16:00:00");
+  assert.ok(
+    getCorpus("note")?.files.get("Journal/Daily/2026-10-05.md").includes("**16:00:00** 缓存同步"),
+    "日记追加后缓存即新值"
+  );
+
+  const card = await appendInspirationCard(note, { title: "t", body: "b" }, io, "TS9");
+  assert.ok(getCorpus("note")?.files.get(card.path), "新灵感卡内容进缓存");
+  assert.ok(getCorpus("note")?.treePaths.includes(card.path), "新灵感卡进树索引");
+});

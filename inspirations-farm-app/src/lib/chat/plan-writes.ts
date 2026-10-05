@@ -1,4 +1,5 @@
 import { withConflictRetry } from "@/lib/github-client";
+import { getCorpus } from "@/lib/chat/corpus-cache";
 import type { ChatGithubIo } from "@/lib/chat/github-chat";
 import type { ChatRepo } from "@/lib/chat/repos";
 import { WriteForbiddenError } from "@/lib/chat/write-core";
@@ -35,6 +36,8 @@ export async function updatePlanFile(
   return withConflictRetry(async () => {
     const cur = await io.getFile(repo, path); // 404 → GitHubApiError 上抛，工具层转错误文本
     const res = await io.putFile(repo, path, newContent, `[ai-chat] ${reason}`, cur.sha);
+    // 写穿透：AI 的下一次 read_file/search_text/热集必须看到自己刚写的内容
+    getCorpus(repo.id)?.files.set(path, newContent);
     return { path, commit: res.commit, url: res.url };
   });
 }
@@ -63,6 +66,7 @@ export async function revertPlanFile(
       `[ai-chat] revert ${commitSha.slice(0, 7)} ${path}`,
       cur.sha
     );
+    getCorpus(repo.id)?.files.set(path, parentFile.content);
     return { path, commit: res.commit, url: res.url, alreadyReverted: false };
   });
 }

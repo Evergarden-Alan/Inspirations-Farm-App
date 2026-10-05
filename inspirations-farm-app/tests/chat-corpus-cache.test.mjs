@@ -135,3 +135,42 @@ test("readThrough hits cache then falls back to network on miss", async () => {
   assert.equal(await readThrough(note, "c.md", io), "C"); // 未在 tree 里 → 回源成功并入缓存
   assert.equal(await readThrough(note, "missing.md", io), null); // 404 → null
 });
+
+test("warmIfStale skips fresh caches", async () => {
+  const { warmIfStale } = await import("../src/lib/chat/corpus-cache.ts");
+  const io = fakeIo({ tree: ["x.md"], contents: { "x.md": "X" } });
+  await ensureCorpus(review, io, { force: true, now: () => Date.now() });
+  await ensureCorpus(note, io, { force: true, now: () => Date.now() });
+  let calls = 0;
+  await warmIfStale(
+    { note, review },
+    io,
+    {
+      now: () => Date.now() + 1_000, // TTL 内 → 全部 fresh
+      ensure: async () => {
+        calls++;
+        return null;
+      },
+    }
+  );
+  assert.equal(calls, 0);
+});
+
+test("warmIfStale ensures stale repos and swallows per-repo errors", async () => {
+  const { warmIfStale } = await import("../src/lib/chat/corpus-cache.ts");
+  const io = fakeIo({ tree: [], contents: {} });
+  let calls = 0;
+  await warmIfStale(
+    { note, review },
+    io,
+    {
+      now: () => Number.MAX_SAFE_INTEGER - 10_000, // 一切缓存皆过期
+      ensure: async () => {
+        calls++;
+        if (calls === 1) throw new Error("github down");
+        return null;
+      },
+    }
+  );
+  assert.equal(calls, 2, "review 失败不阻断 note");
+});

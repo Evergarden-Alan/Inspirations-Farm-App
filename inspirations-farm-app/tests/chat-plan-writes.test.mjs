@@ -97,3 +97,23 @@ test("revertPlanFile restores parent content and is idempotent", async () => {
   });
   assert.equal(again.alreadyReverted, true);
 });
+
+test("writes go through to corpus cache so AI never reads its own stale write", async () => {
+  const state = { files: new Map([["数学/w40/本周复习计划.md", { sha: "s0", content: "旧" }]]), puts: [] };
+  const io = fakeIo(state);
+  io.listMdPaths = async () => ["数学/w40/本周复习计划.md"];
+  const { ensureCorpus, getCorpus } = await import("../src/lib/chat/corpus-cache.ts");
+  await ensureCorpus(review, io, { force: true, now: () => Date.now() });
+
+  const path = "数学/w40/本周复习计划.md";
+  await updatePlanFile(review, path, "新内容", "写入后缓存同步", io);
+  assert.equal(getCorpus("review")?.files.get(path), "新内容", "update 后缓存即新值");
+
+  const parent = { sha: "p0", content: "父版本内容" };
+  await revertPlanFile(review, path, "c1", {
+    ...io,
+    getCommit: async () => ({ parents: ["p0"] }),
+    getFileAtRef: async () => parent,
+  });
+  assert.equal(getCorpus("review")?.files.get(path), "父版本内容", "revert 后缓存同步父版本");
+});

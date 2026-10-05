@@ -2,15 +2,18 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { useChat } from "@ai-sdk/react";
-import { DefaultChatTransport } from "ai";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
-import { apiFetch, AuthError } from "@/lib/api";
+import { apiFetch, AuthError, clearPin } from "@/lib/api";
 import { MarkdownRenderer } from "@/components/markdown-renderer";
 import { toast } from "@/components/app-shell/toast";
+import { createChatTransport } from "@/features/chat/transport";
 
 const STORAGE_KEY = "chat-history-v1";
+
+// 模块级单例：headers 每次请求时动态读 PIN，transport 本身不随渲染重建
+const chatTransport = createChatTransport();
 
 const WRITE_TOOLS = new Set(["update_plan_file", "append_journal", "append_inspiration"]);
 
@@ -34,7 +37,14 @@ interface SessionInfo {
 
 export function ChatWorkspace() {
   const { messages, sendMessage, status, error, setMessages } = useChat({
-    transport: new DefaultChatTransport({ api: "/api/chat" }),
+    transport: chatTransport,
+    onError: (err) => {
+      // 与 apiFetch 的 401 惯例对齐：清 PIN + 触发全局锁屏
+      if (err.message.includes("Unauthorized")) {
+        clearPin();
+        window.dispatchEvent(new CustomEvent("auth:expired"));
+      }
+    },
   });
   const [input, setInput] = useState("");
   const [session, setSession] = useState<SessionInfo | null>(null);

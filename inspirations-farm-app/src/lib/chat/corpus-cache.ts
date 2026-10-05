@@ -123,3 +123,30 @@ export async function readThrough(
     return null;
   }
 }
+
+/** /api/chat 用的暖缓存预算：只补缺口，不拖慢首答（session 才是 45s 全量）。 */
+export const WARM_BUDGET_MS = 8_000;
+
+/** lambda 模块级缓存不跨实例共享：冷实例上 getCorpus 为 null。缺失或过期时
+ *  以小预算尽力装载；失败静默——热集降级与提示词兜底。 */
+export async function warmIfStale(
+  repos: { note: ChatRepo; review: ChatRepo },
+  io: ChatGithubIo,
+  opts: {
+    budgetMs?: number;
+    now?: () => number;
+    ensure?: typeof ensureCorpus;
+  } = {}
+): Promise<void> {
+  const now = opts.now ?? Date.now;
+  const ensure = opts.ensure ?? ensureCorpus;
+  for (const repo of [repos.review, repos.note]) {
+    const entry = cache.get(repo.id);
+    if (entry && now() - entry.fetchedAt < TTL_MS) continue;
+    try {
+      await ensure(repo, io, { budgetMs: opts.budgetMs ?? WARM_BUDGET_MS, now });
+    } catch {
+      // 降级：热集为空 + 提示词降级提示已兜底
+    }
+  }
+}

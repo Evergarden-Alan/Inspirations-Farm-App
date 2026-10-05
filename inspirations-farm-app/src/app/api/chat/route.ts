@@ -3,6 +3,7 @@ import { convertToModelMessages, stepCountIs, streamText } from "ai";
 
 import { validatePin } from "@/lib/auth";
 import { ChatConfigError, getChatRepos } from "@/lib/chat/repos";
+import { warmIfStale } from "@/lib/chat/corpus-cache";
 import { createChatGithubIo } from "@/lib/chat/github-chat";
 import { createChatTools } from "@/lib/chat/tools";
 import { buildSystemFromCache } from "@/lib/chat/prompt";
@@ -53,6 +54,8 @@ export function createChatRoute(
       }
       const repos = getChatRepos();
       const io = createChatGithubIo();
+      // 冷实例上模块级缓存为空（session 暖的可能是另一实例）：小预算尽力装载
+      await warmIfStale(repos, io);
       return {
         tools: deps.tools ?? createChatTools({ repos, io }),
         system: await (deps.system ?? (await buildSystemFromCache(repos, io, new Date())).system),

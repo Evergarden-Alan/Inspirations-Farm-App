@@ -1,6 +1,7 @@
 import { getBeijingDateTimeString, getBeijingTimestamp } from "@/lib/beijing-time";
 import { insertIntoDailyNotesSection } from "@/lib/markdown-utils";
 import { GitHubApiError, withConflictRetry } from "@/lib/github-client";
+import { getCorpus } from "@/lib/chat/corpus-cache";
 import type { ChatGithubIo } from "@/lib/chat/github-chat";
 import type { ChatRepo } from "@/lib/chat/repos";
 import { AI_COMMIT_PREFIX, JournalMissingError, WriteForbiddenError } from "@/lib/chat/write-core";
@@ -51,6 +52,7 @@ export async function appendJournalEntry(
     }
     const next = insertIntoDailyNotesSection(journal.content, time ?? beijingClock(), text);
     const res = await io.putFile(repo, path, next, `${AI_COMMIT_PREFIX}日记杂记 ${date}`, journal.sha);
+    getCorpus(repo.id)?.files.set(path, next); // 写穿透：追加内容立即可检索
     return { path, commit: res.commit, url: res.url };
   });
 }
@@ -93,6 +95,9 @@ export async function appendInspirationCard(
     const path = `Inspirations/${name}`;
     try {
       const res = await io.putFile(repo, path, yaml(name), `${AI_COMMIT_PREFIX}灵感：${card.title}`);
+      const entry = getCorpus(repo.id);
+      entry?.files.set(path, yaml(name));
+      if (entry && !entry.treePaths.includes(path)) entry.treePaths.push(path);
       return { path, commit: res.commit, url: res.url };
     } catch (err: unknown) {
       const status = err instanceof GitHubApiError ? err.status : 0;

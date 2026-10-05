@@ -1,8 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import * as sessionRoute from "../src/app/api/chat/session/route.ts";
 import { createChatSessionRoute } from "../src/app/api/chat/session/route.ts";
 import { createChatRevertRoute } from "../src/app/api/chat/revert/route.ts";
+
+test("session route declares maxDuration 60 (45s load budget exceeds 10s default)", () => {
+  assert.equal(sessionRoute.maxDuration, 60);
+});
 
 const PIN = "135791";
 
