@@ -43,7 +43,8 @@ export function createChatGithubIo(
   } = {}
 ): ChatGithubIo {
   const pat = overrides.pat ?? process.env.GITHUB_PAT ?? "";
-  const gh = overrides.fetch ?? githubFetchFor;
+  // DI 缝隙：注入的 fetch 收敛到 githubFetchFor 的泛型签名，保住响应类型
+  const gh = (overrides.fetch ?? githubFetchFor) as typeof githubFetchFor;
 
   async function getFile(repo: ChatRepo, path: string) {
     assertSafePath(path);
