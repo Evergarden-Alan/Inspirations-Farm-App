@@ -163,6 +163,18 @@ export function ChatWorkspace() {
               if (part.type === "text") {
                 return <MarkdownRenderer key={i} content={part.text} />;
               }
+              if (part.type === "reasoning") {
+                // 推理模型（glm-5.3-flash）回答前有长思维链：不渲染就是一片空白
+                return (
+                  <details
+                    key={i}
+                    className="border-l-2 border-[var(--farm-line)] pl-2 text-xs text-[var(--farm-muted)]"
+                  >
+                    <summary className="cursor-pointer select-none">思考过程</summary>
+                    <div className="whitespace-pre-wrap pt-1">{part.text}</div>
+                  </details>
+                );
+              }
               if (part.type?.startsWith("tool-")) {
                 const name = part.type.slice(5);
                 const isWrite = WRITE_TOOLS.has(name);
