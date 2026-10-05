@@ -69,21 +69,21 @@ export async function withConflictRetry<T>(fn: () => Promise<T>): Promise<T> {
   throw lastErr;
 }
 
-/** Authorised fetch wrapper for the GitHub REST API. Centralises the base URL,
- *  auth header, API version, and no-store caching. Throws GitHubConflictError
- *  on 409 (so callers can retry) and a plain Error on other non-2xx statuses. */
-export async function githubFetch<T = unknown>(
+/** Parameterised variant of githubFetch for callers targeting a repo other
+ *  than the default vault (REPO_OWNER/REPO_NAME). Same auth headers, base
+ *  URL, and error mapping as githubFetch. */
+export async function githubFetchFor<T = unknown>(
+  creds: { pat: string },
   path: string,
   options: RequestInit = {}
 ): Promise<T> {
-  const { pat } = getConfig();
   const url = `${GITHUB_API}${path}`;
 
   const res = await fetch(url, {
     ...options,
     cache: "no-store",
     headers: {
-      Authorization: `Bearer ${pat}`,
+      Authorization: `Bearer ${creds.pat}`,
       Accept: "application/vnd.github+json",
       "X-GitHub-Api-Version": "2022-11-28",
       ...options.headers,
@@ -96,7 +96,7 @@ export async function githubFetch<T = unknown>(
 
     // Log full error server-side for debugging, but only expose sanitized
     // message to client to prevent leaking tokens, file paths, or internal details
-    console.error(`[githubFetch] ${path}:`, body.slice(0, 500));
+    console.error(`[githubFetchFor] ${path}:`, body.slice(0, 500));
 
     // 409 = stale SHA (someone wrote between our GET and PUT). Surface as a
     // typed error so callers can re-fetch the SHA and retry the write.
@@ -107,6 +107,17 @@ export async function githubFetch<T = unknown>(
   }
 
   return res.json() as Promise<T>;
+}
+
+/** Authorised fetch wrapper for the GitHub REST API. Centralises the base URL,
+ *  auth header, API version, and no-store caching. Throws GitHubConflictError
+ *  on 409 (so callers can retry) and a plain Error on other non-2xx statuses. */
+export async function githubFetch<T = unknown>(
+  path: string,
+  options: RequestInit = {}
+): Promise<T> {
+  const { pat } = getConfig();
+  return githubFetchFor<T>({ pat }, path, options);
 }
 
 /** Raw-bytes variant of githubFetch for media (images). Uses the
