@@ -29,6 +29,7 @@ interface WriteToolOutput {
 interface SessionInfo {
   fetchedAt: string;
   degraded: boolean;
+  providers: string[];
   coverage: {
     note: { cached: number; total: number };
     review: { cached: number; total: number };
@@ -48,6 +49,7 @@ export function ChatWorkspace() {
   });
   const [input, setInput] = useState("");
   const [session, setSession] = useState<SessionInfo | null>(null);
+  const [provider, setProvider] = useState<string | undefined>(undefined);
   const [reverting, setReverting] = useState<string | null>(null);
 
   // 恢复上次会话 + session 引导（暖缓存 + 热集）
@@ -63,7 +65,10 @@ export function ChatWorkspace() {
     }
     apiFetch("/api/chat/session", { method: "POST" })
       .then((res) => res.json())
-      .then((data: SessionInfo) => setSession(data))
+      .then((data: SessionInfo) => {
+        setSession(data);
+        setProvider((cur) => cur ?? data.providers?.[0]);
+      })
       .catch(() => setSession(null));
   }, [setMessages]);
 
@@ -77,8 +82,8 @@ export function ChatWorkspace() {
     const text = input.trim();
     if (!text || status === "streaming" || status === "submitted") return;
     setInput("");
-    sendMessage({ text });
-  }, [input, sendMessage, status]);
+    sendMessage({ text }, { body: { provider } });
+  }, [input, provider, sendMessage, status]);
 
   const revert = useCallback(async (path: string, commit: string) => {
     setReverting(commit);
@@ -104,16 +109,32 @@ export function ChatWorkspace() {
     <div className="mx-auto flex min-h-[calc(100dvh-68px)] max-w-[1280px] flex-col gap-3 px-4 py-4">
       <header className="flex items-baseline justify-between gap-2">
         <h1 className="text-lg font-semibold">计划参谋</h1>
-        {session && (
-          <span className="text-xs text-[var(--farm-muted)]">
-            数据截至{" "}
-            {new Date(session.fetchedAt).toLocaleTimeString("zh-CN", {
-              hour: "2-digit",
-              minute: "2-digit",
-            })}
-            {session.degraded ? "（部分降级）" : ""}
-          </span>
-        )}
+        <div className="flex items-center gap-3">
+          {session && session.providers && session.providers.length > 1 && (
+            <select
+              value={provider ?? ""}
+              onChange={(e) => setProvider(e.target.value || undefined)}
+              aria-label="模型供应商"
+              className="rounded-lg border border-[var(--farm-line)] bg-[var(--farm-paper)] px-2 py-1 text-xs"
+            >
+              {session.providers.map((id) => (
+                <option key={id} value={id}>
+                  {id}
+                </option>
+              ))}
+            </select>
+          )}
+          {session && (
+            <span className="text-xs text-[var(--farm-muted)]">
+              数据截至{" "}
+              {new Date(session.fetchedAt).toLocaleTimeString("zh-CN", {
+                hour: "2-digit",
+                minute: "2-digit",
+              })}
+              {session.degraded ? "（部分降级）" : ""}
+            </span>
+          )}
+        </div>
       </header>
 
       {error && (

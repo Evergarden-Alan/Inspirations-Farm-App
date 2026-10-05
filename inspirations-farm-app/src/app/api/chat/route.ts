@@ -7,7 +7,22 @@ import { warmIfStale } from "@/lib/chat/corpus-cache";
 import { createChatGithubIo } from "@/lib/chat/github-chat";
 import { createChatTools } from "@/lib/chat/tools";
 import { buildSystemFromCache } from "@/lib/chat/prompt";
-import { createChatModel } from "@/lib/chat/model";
+import { createChatModel, createChatModelFor, listChatProviders } from "@/lib/chat/model";
+
+/** 模型解析顺序：显式 provider > 注册表里第一个有 key 的 > 旧 AI_API_KEY。 */
+export function resolveChatModel(
+  provider: unknown,
+  env: Record<string, string | undefined> = process.env
+) {
+  if (typeof provider === "string" && provider) {
+    return createChatModelFor(provider, env);
+  }
+  const available = listChatProviders(env).filter((p) => p.hasKey);
+  if (available.length > 0) {
+    return createChatModelFor(available[0].id, env);
+  }
+  return createChatModel(env);
+}
 
 // Vercel Hobby 上限 60s：冷启动语料装载 + 多步工具链都在预算内（spec §4 时限纪律）。
 export const maxDuration = 60;
@@ -27,7 +42,7 @@ export function createChatRoute(
   async function POST(req: NextRequest) {
     if (!validatePin(req)) return deny();
 
-    let body: { messages?: unknown };
+    let body: { messages?: unknown; provider?: unknown };
     try {
       body = await req.json();
     } catch {
@@ -39,7 +54,7 @@ export function createChatRoute(
 
     let model: unknown;
     try {
-      model = deps.model ?? createChatModel();
+      model = deps.model ?? resolveChatModel(body.provider);
     } catch (err: unknown) {
       if (err instanceof ChatConfigError) {
         return Response.json({ ok: false, error: err.message }, { status: 503 });

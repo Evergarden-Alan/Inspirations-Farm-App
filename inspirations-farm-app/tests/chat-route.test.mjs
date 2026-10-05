@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { createChatRoute } from "../src/app/api/chat/route.ts";
+import { createChatRoute, resolveChatModel } from "../src/app/api/chat/route.ts";
 
 const PIN = "246810";
 
@@ -46,6 +46,30 @@ test("chat route: 503 when model factory raises ChatConfigError", async () => {
   } finally {
     if (saved !== undefined) process.env.AI_API_KEY = saved;
   }
+});
+
+test("resolveChatModel picks requested provider, first available, then legacy key", () => {
+  // 指定 id 直接命中
+  assert.ok(resolveChatModel("glm", { GLM_API_KEY: "g" }));
+  // 未指定 → 注册表里第一个有 key 的
+  assert.ok(resolveChatModel(undefined, { DEEPSEEK_API_KEY: "d" }));
+  // 注册表空 → 旧 AI_API_KEY
+  assert.ok(resolveChatModel(undefined, { AI_API_KEY: "a" }));
+  // 全空 → ChatConfigError
+  assert.throws(() => resolveChatModel(undefined, {}), (err) => err.name === "ChatConfigError");
+  // 指定了但没 key → ChatConfigError 带供应商名
+  assert.throws(
+    () => resolveChatModel("deepseek", { GLM_API_KEY: "g" }),
+    /DEEPSEEK_API_KEY/
+  );
+});
+
+test("chat route: unknown provider string → 503 naming the provider", async () => {
+  const { POST } = createChatRoute({ tools: {}, system: "s" });
+  const res = await POST(req({ messages: MESSAGES, provider: "nope" }));
+  assert.equal(res.status, 503);
+  const body = await res.json();
+  assert.ok(body.error.includes("nope"));
 });
 
 test("chat route: streams a mocked model response", async () => {

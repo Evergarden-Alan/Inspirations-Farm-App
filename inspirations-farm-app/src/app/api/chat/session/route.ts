@@ -3,6 +3,7 @@ import type { NextRequest } from "next/server";
 import { validatePin } from "@/lib/auth";
 import { ensureCorpus, corpusCoverage } from "@/lib/chat/corpus-cache";
 import { createChatGithubIo } from "@/lib/chat/github-chat";
+import { listChatProviders } from "@/lib/chat/model";
 import { buildSystemFromCache } from "@/lib/chat/prompt";
 import { getChatRepos } from "@/lib/chat/repos";
 
@@ -40,6 +41,7 @@ export function createChatSessionRoute(
       coverage: { note: corpusCoverage("note"), review: corpusCoverage("review") },
       degraded: degraded || hotSet.degraded,
       hotSetChars: system.length,
+      providers: listChatProviders().filter((p) => p.hasKey).map((p) => p.id),
     });
   }
 

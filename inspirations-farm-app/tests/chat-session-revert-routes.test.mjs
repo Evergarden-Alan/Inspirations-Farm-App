@@ -49,6 +49,18 @@ test("session route: reports coverage and degraded on partial failure", async ()
   assert.equal(body.degraded, true, "review 失败 → degraded");
   assert.equal(calls, 2);
   assert.ok(typeof body.hotSetChars === "number");
+  assert.deepEqual(body.providers, [], "无任何 key → 空列表");
+});
+
+test("session route: lists providers that have keys", async () => {
+  process.env.GLM_API_KEY = "g";
+  try {
+    const { POST } = createChatSessionRoute({ ensure: async () => ({ files: new Map(), treePaths: [], fetchedAt: 1, partial: false }) });
+    const body = await (await POST(req({}))).json();
+    assert.deepEqual(body.providers, ["glm"]);
+  } finally {
+    delete process.env.GLM_API_KEY;
+  }
 });
 
 test("revert route: 401 / 400 / happy path with injected revert", async () => {
