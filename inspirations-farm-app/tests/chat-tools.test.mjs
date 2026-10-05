@@ -103,3 +103,13 @@ test("tools: list_tree filters by dir prefix", async () => {
   const res = await tools.list_tree.execute({ repo: "review", dir: "数学" }, {});
   assert.deepEqual(res.paths, ["数学/w40/本周复习计划.md"]);
 });
+
+test("tools: missing corpus surfaces explicit error, never silent empty success", async () => {
+  const tools = createChatTools({ repos: { note: NOTE, review: REVIEW }, io: io({ files: {}, tree: [] }) });
+  // 本文件此前只装载过 review；note 此时无缓存条目 → 必须显式报错
+  const tree = await tools.list_tree.execute({ repo: "note" }, {});
+  assert.equal(tree.ok, false, "缓存缺失 → 明确报错而非空列表");
+  assert.ok(/未装载|权限|引导/.test(tree.error));
+  const search = await tools.search_text.execute({ repo: "note", query: "x" }, {});
+  assert.equal(search.ok, false, "search_text 同样不许静默空成功");
+});

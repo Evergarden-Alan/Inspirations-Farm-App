@@ -45,12 +45,19 @@ export function createChatTools(deps: ChatToolDeps) {
       execute: async ({ repo, query, glob }) => {
         try {
           const entry = getCorpus(repoOf(repo).id);
+          if (!entry) {
+            return {
+              ok: false as const,
+              error:
+                "该仓库语料未装载。常见原因：GITHUB_PAT 无权访问该仓库（GitHub 对未授权私有仓库返回 404）、仓库为空，或 session 引导未完成。请让用户检查 token 权限后重发一条消息触发重载。",
+            };
+          }
           const result = searchCorpus(entry, query, { glob });
           return {
             ok: true as const,
             ...result,
-            partial: entry?.partial ?? false,
-            note: entry?.partial
+            partial: entry.partial,
+            note: entry.partial
               ? "语料为部分装载，结果可能不全；可用 list_tree + read_file 精确读取"
               : undefined,
           };
@@ -65,10 +72,21 @@ export function createChatTools(deps: ChatToolDeps) {
       inputSchema: z.object({ repo: repoEnum, dir: z.string().optional() }),
       execute: async ({ repo, dir }) => {
         const entry = getCorpus(repoOf(repo).id);
-        const paths = (entry?.treePaths ?? []).filter(
+        if (!entry) {
+          return {
+            ok: false as const,
+            error:
+              "该仓库语料未装载。常见原因：GITHUB_PAT 无权访问该仓库（GitHub 对未授权私有仓库返回 404）、仓库为空，或 session 引导未完成。请让用户检查 token 权限后重发一条消息触发重载。",
+          };
+        }
+        const paths = entry.treePaths.filter(
           (p) => !dir || p.startsWith(dir.endsWith("/") ? dir : `${dir}/`)
         );
-        return { ok: true as const, paths };
+        return {
+          ok: true as const,
+          paths,
+          note: entry.treePaths.length === 0 ? "仓库树为空（远程没有任何 .md 文件）" : undefined,
+        };
       },
     }),
 
