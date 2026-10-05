@@ -3,10 +3,10 @@ import test from "node:test";
 
 import { WORKSPACE_NAV } from "../src/components/app-shell/navigation-config.ts";
 
-test("workspace navigation exposes four deep-linkable destinations", () => {
+test("workspace navigation exposes five deep-linkable destinations", () => {
   assert.deepEqual(
     WORKSPACE_NAV.map((item) => item.href),
-    ["/", "/inspirations", "/jottings", "/bench"],
+    ["/", "/inspirations", "/jottings", "/bench", "/chat"],
   );
 
   const hrefs = new Set(WORKSPACE_NAV.map((item) => item.href));
@@ -18,7 +18,7 @@ test("workspace navigation exposes four deep-linkable destinations", () => {
 });
 
 test("workspace navigation uses renderable icon ids", () => {
-  const allowedIcons = new Set(["calendar", "lightbulb", "notebook", "flask"]);
+  const allowedIcons = new Set(["calendar", "lightbulb", "notebook", "flask", "message"]);
 
   for (const item of WORKSPACE_NAV) {
     assert.ok(allowedIcons.has(item.icon));

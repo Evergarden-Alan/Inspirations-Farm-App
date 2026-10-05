@@ -6,6 +6,7 @@ import {
   CalendarDays,
   FlaskConical,
   Lightbulb,
+  MessageCircle,
   NotebookPen,
   type LucideIcon,
 } from "lucide-react";
@@ -17,6 +18,7 @@ const ICONS: Record<WorkspaceIconId, LucideIcon> = {
   lightbulb: Lightbulb,
   notebook: NotebookPen,
   flask: FlaskConical,
+  message: MessageCircle,
 };
 
 function isActive(pathname: string, href: WorkspaceNavItemHref) {
