@@ -11,8 +11,8 @@ const KNOWN_BASE_URLS: Record<string, string> = {
 };
 
 const KNOWN_MODELS: Record<string, string> = {
-  glm: "glm-4.6",
-  deepseek: "deepseek-chat",
+  glm: "glm-5.3-flash",
+  deepseek: "deepseek-flash",
 };
 
 export interface ChatProviderInfo {
@@ -86,5 +86,5 @@ export function createChatModel(
     baseURL: env.AI_BASE_URL ?? "https://open.bigmodel.cn/api/paas/v4",
     apiKey,
   });
-  return provider(env.AI_MODEL ?? "glm-4.6");
+  return provider(env.AI_MODEL ?? "glm-5.3-flash");
 }

@@ -7,6 +7,13 @@ import {
   listChatProviders,
 } from "../src/lib/chat/model.ts";
 
+test("known provider default models track current API names", () => {
+  const providers = listChatProviders({ GLM_API_KEY: "g", DEEPSEEK_API_KEY: "d" });
+  const byId = Object.fromEntries(providers.map((p) => [p.id, p.model]));
+  assert.equal(byId.glm, "glm-5.3-flash");
+  assert.equal(byId.deepseek, "deepseek-flash");
+});
+
 test("listChatProviders discovers known ids by API key and reports availability", () => {
   const providers = listChatProviders({
     GLM_API_KEY: "g",
