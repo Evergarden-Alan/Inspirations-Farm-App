@@ -109,3 +109,27 @@ export function createChatGithubIo(
 
   return { getFile, putFile, getCommit, getFileAtRef, listMdPaths };
 }
+
+/** 查询剩余配额。/rate_limit 端点本身不计入每小时配额；任何失败返回 null
+ *  （调用方按"未知，正常流程"处理）。 */
+export async function getCoreRateLimitRemaining(
+  pat: string = process.env.GITHUB_PAT ?? ""
+): Promise<{ remaining: number; resetAt: number } | null> {
+  if (!pat) return null;
+  try {
+    const res = await fetch("https://api.github.com/rate_limit", {
+      headers: {
+        Authorization: `Bearer ${pat}`,
+        Accept: "application/vnd.github+json",
+      },
+      cache: "no-store",
+    });
+    if (!res.ok) return null;
+    const d = (await res.json()) as {
+      resources: { core: { remaining: number; reset: number } };
+    };
+    return { remaining: d.resources.core.remaining, resetAt: d.resources.core.reset * 1000 };
+  } catch {
+    return null;
+  }
+}

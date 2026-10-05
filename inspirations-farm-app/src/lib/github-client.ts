@@ -43,6 +43,22 @@ export class GitHubConflictError extends GitHubApiError {
   }
 }
 
+/** GitHub hourly quota exhausted (5000 req/h for PATs). GitHub signals this as
+ *  403 + `x-ratelimit-remaining: 0` — indistinguishable from a real permission
+ *  403 without checking the header. The `/rate_limit` endpoint itself is free. */
+export class GitHubRateLimitError extends GitHubApiError {
+  readonly resetAt: Date;
+
+  constructor(resetAt: Date) {
+    const hhmm = new Date(resetAt.getTime() + 8 * 3600_000)
+      .toISOString()
+      .slice(11, 16);
+    super(`GitHub API 配额已耗尽（每小时 5000 次），约 ${hhmm}（北京时间）重置`, 403);
+    this.name = "GitHubRateLimitError";
+    this.resetAt = resetAt;
+  }
+}
+
 /** Retry a write operation on HTTP 409 (stale SHA). The operation `fn` must
  *  GET the current SHA + content internally before its PUT; on a 409 the file
  *  changed between that GET and the PUT, so we retry and `fn` re-GETs the
@@ -102,6 +118,17 @@ export async function githubFetchFor<T = unknown>(
     // typed error so callers can re-fetch the SHA and retry the write.
     if (res.status === 409) {
       throw new GitHubConflictError(safeMessage);
+    }
+    // 403 + remaining:0 = hourly quota exhausted (GitHub rate-limits with 403,
+    // not 429) — say so, or it masquerades as a permissions problem.
+    if (
+      res.status === 403 &&
+      res.headers.get("x-ratelimit-remaining") === "0"
+    ) {
+      const resetSec = Number(res.headers.get("x-ratelimit-reset"));
+      if (Number.isFinite(resetSec) && resetSec > 0) {
+        throw new GitHubRateLimitError(new Date(resetSec * 1000));
+      }
     }
     throw new GitHubApiError(safeMessage, res.status);
   }
