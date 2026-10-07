@@ -4,9 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
   CalendarDays,
-  FlaskConical,
   Lightbulb,
-  MessageCircle,
   NotebookPen,
   type LucideIcon,
 } from "lucide-react";
@@ -17,8 +15,6 @@ const ICONS: Record<WorkspaceIconId, LucideIcon> = {
   calendar: CalendarDays,
   lightbulb: Lightbulb,
   notebook: NotebookPen,
-  flask: FlaskConical,
-  message: MessageCircle,
 };
 
 function isActive(pathname: string, href: WorkspaceNavItemHref) {

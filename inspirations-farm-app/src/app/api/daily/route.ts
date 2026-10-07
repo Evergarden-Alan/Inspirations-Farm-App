@@ -15,7 +15,6 @@ import {
   GitHubConflictError,
   type DailyTaskLocator,
 } from "@/lib/github";
-import { insertBehaviorRecord } from "@/lib/insights-daily";
 import { isSafeAttachmentFilename } from "@/lib/attachments";
 import { validatePin } from "@/lib/auth";
 import { getBeijingDateTimeString } from "@/lib/beijing-time";
@@ -95,15 +94,10 @@ export async function POST(req: NextRequest) {
       const bjTime = getBeijingDateTimeString();
       const time = bjTime.slice(11, 16);
 
-      // section: "behavior" (📌 行为记录, insights record mode) | "jottings" (default)
-      const section = body.section === "behavior" ? "behavior" : "jottings";
-
       // Read-modify-write with 409 retry: a stale SHA (GitHub read-replica lag
       // right after a prior write) is retried by re-fetching fresh content.
       const result = await modifyDailyJournal(date, (c) =>
-        section === "behavior"
-          ? insertBehaviorRecord(c, time, content)
-          : insertIntoDailyNotesSection(c, time, content)
+        insertIntoDailyNotesSection(c, time, content)
       );
       // addNote's modifier never aborts, so result is non-null in practice.
       if (!result) {

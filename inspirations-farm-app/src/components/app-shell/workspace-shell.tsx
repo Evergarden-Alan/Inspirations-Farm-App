@@ -5,7 +5,6 @@ import Link from "next/link";
 import { CalendarDays, Settings, Sprout } from "lucide-react";
 
 import { CaptureFab } from "@/components/app-shell/capture-fab";
-import { InductDrawer } from "@/components/app-shell/induct-drawer";
 import { LockScreen } from "@/components/app-shell/lock-screen";
 import { ThemeToggle } from "@/components/app-shell/theme-toggle";
 import { ToastContainer } from "@/components/app-shell/toast";
@@ -94,7 +93,6 @@ export function WorkspaceShell({ children }: { children: React.ReactNode }) {
       </main>
 
       {unlocked && <CaptureFab />}
-      {unlocked && <InductDrawer />}
       <ToastContainer />
       <AppNav variant="mobile" />
 
